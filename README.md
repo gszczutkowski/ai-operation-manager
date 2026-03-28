@@ -645,7 +645,6 @@ required:
   evaluate-workflow: "latest"
   child/generate-handwriting-practice: "*"
 ```
-```
 
 The header is case-insensitive. The parser accepts fenced YAML blocks or 4-space-indented YAML.
 
