@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# aom — main entry point for the AI Operation Manager (Unix/macOS/WSL)
+#
+# Usage: aom <command> [options]
+#   aom install  complex-evaluator:1.0.2 --global
+#   aom list
+#   aom sync
+#   aom remove   complex-evaluator --local
+#   aom update   complex-evaluator --global
+#   aom env      --check
+#
+# Environment variables:
+#   AI_SKILLS_REPO_PATH    — path to the ai-grimoire repository root
+#   AI_SKILLS_SCRIPTS_PATH — path to the project root (auto-detected)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Auto-export scripts path so Python config.py can find it
+export AI_SKILLS_SCRIPTS_PATH="${AI_SKILLS_SCRIPTS_PATH:-$REPO_ROOT}"
+
+# Change to repo root so aom package is importable from anywhere
+cd "$REPO_ROOT"
+
+exec python3 -m aom.cli "$@"

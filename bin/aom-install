@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Convenience alias for: aom install ...
+exec "$(dirname "${BASH_SOURCE[0]}")/aom" install "$@"
