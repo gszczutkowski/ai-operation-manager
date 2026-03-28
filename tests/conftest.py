@@ -9,10 +9,13 @@ from aom.models import SkillRecord, parse_version
 
 @pytest.fixture(autouse=True)
 def _isolate_agent_cache(monkeypatch):
-    """Reset the in-process agent cache between tests."""
+    """Reset the in-process agent cache between tests.
+
+    Sets the cache directly to ClaudeCode (the only agent) so tests
+    don't trigger interactive prompts.
+    """
     import aom.config as cfg
-    monkeypatch.setattr(cfg, "_AGENT_CACHE", None)
-    monkeypatch.setenv("AI_AGENT_DEFAULT", "ClaudeCode")
+    monkeypatch.setattr(cfg, "_AGENT_CACHE", "ClaudeCode")
 
 
 @pytest.fixture(autouse=True)

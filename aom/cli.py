@@ -28,7 +28,7 @@ from .config import (
     get_global_registry,
     get_local_dir,
     get_local_registry,
-    get_repo_path,
+    get_local_paths,
     get_repo_urls,
 )
 from .discovery import scan_git_repository, scan_installed, scan_repository
@@ -41,6 +41,8 @@ from .resolver import resolve, resolve_all, resolve_latest
 from .settings import (
     get_repo_urls as get_global_repo_urls,
     set_repo_urls as set_global_repo_urls,
+    get_local_paths as get_global_local_paths,
+    set_local_paths as set_global_local_paths,
 )
 
 
@@ -73,13 +75,16 @@ def _get_git_repos(project_dir=None) -> list[GitRepo]:
 
 
 def _get_repo_records(git_repos: list[GitRepo]) -> list:
-    """Return aggregated skill records from all git repos or local filesystem."""
-    if git_repos:
-        records: list = []
-        for repo in git_repos:
-            records.extend(scan_git_repository(repo))
-        return records
-    return scan_repository(get_repo_path())
+    """Return aggregated skill records from all git repos and local filesystem paths."""
+    records: list = []
+    for repo in git_repos:
+        records.extend(scan_git_repository(repo))
+    # Also scan configured local filesystem paths
+    for local_path in get_local_paths():
+        p = Path(local_path)
+        if p.is_dir():
+            records.extend(scan_repository(p))
+    return records
 
 
 def _fetch_if_requested(git_repos: list[GitRepo], fetch: bool) -> None:
@@ -362,13 +367,12 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 def cmd_env(args: argparse.Namespace) -> int:
     """Show or validate environment configuration."""
-    import os
     from .config import get_agent
     from .settings import get_settings_path
 
     agent = get_agent()
-    repo_raw = os.environ.get("AI_SKILLS_REPO_PATH", "")
     all_urls = get_repo_urls()
+    local_paths = get_local_paths()
 
     print()
     print(bold("AI Agent"))
@@ -384,7 +388,7 @@ def cmd_env(args: argparse.Namespace) -> int:
     print(f"  {'settings file':<30} {get_settings_path()}")
 
     print()
-    print(bold("Skills Repositories"))
+    print(bold("Skills Repositories (remote)"))
     print("-" * 40)
     if all_urls:
         for i, url in enumerate(all_urls, 1):
@@ -398,10 +402,16 @@ def cmd_env(args: argparse.Namespace) -> int:
     else:
         print(f"  {yellow('(not configured — run aom init)')}")
 
-    if repo_raw:
-        p = Path(repo_raw)
-        status = green("✓ exists") if p.is_dir() else red("✗ path missing")
-        print(f"  {'AI_SKILLS_REPO_PATH (fallback)':<30} {repo_raw}  [{status}]")
+    print()
+    print(bold("Skills Repositories (local paths)"))
+    print("-" * 40)
+    if local_paths:
+        for i, lp in enumerate(local_paths, 1):
+            p = Path(lp)
+            status = green("✓ exists") if p.is_dir() else red("✗ path missing")
+            print(f"  [{i}] {lp}  [{status}]")
+    else:
+        print(f"  {dim('(none configured)')}")
 
     print()
     print(bold("Install locations"))
@@ -411,7 +421,7 @@ def cmd_env(args: argparse.Namespace) -> int:
     print()
 
     if args.check:
-        if not all_urls and (not repo_raw or not Path(repo_raw).is_dir()):
+        if not all_urls and not local_paths:
             print(red("✗ No repository configured. Run 'aom init' to set up."))
             return 1
     return 0
@@ -522,7 +532,43 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(green(f"✓ Saved {len(urls)} repository URL(s) to {get_settings_path()}"))
         print()
 
-    # ---- Step 3: write primary URL to project config (backward compat) ----
+    # ---- Step 3: configure local filesystem paths (optional) ----
+    saved_local_paths = get_global_local_paths()
+
+    if saved_local_paths:
+        print(bold("Configured local paths:"))
+        for i, lp in enumerate(saved_local_paths, 1):
+            p = Path(lp)
+            status = green("✓ exists") if p.is_dir() else red("✗ missing")
+            print(f"  [{i}] {lp}  [{status}]")
+        print()
+        ans = input("  Change local paths? [y/N]: ").strip().lower()
+        if ans == "y":
+            local_paths = _prompt_local_paths()
+            set_global_local_paths(local_paths)
+            saved_local_paths = local_paths
+            print(green(f"✓ Saved {len(local_paths)} local path(s) to {get_settings_path()}"))
+            print()
+        else:
+            print(dim("  Using existing local path configuration."))
+            print()
+    else:
+        print("Optionally, you can add local filesystem paths to skill repositories.")
+        print("This is useful for local development or when skills are stored on disk.")
+        print()
+        ans = input("  Add local paths? [y/N]: ").strip().lower()
+        if ans == "y":
+            local_paths = _prompt_local_paths()
+            set_global_local_paths(local_paths)
+            saved_local_paths = local_paths
+            print()
+            print(green(f"✓ Saved {len(local_paths)} local path(s) to {get_settings_path()}"))
+            print()
+        else:
+            print(dim("  Skipped."))
+            print()
+
+    # ---- Step 4: write primary URL to project config (backward compat) ----
     if saved_urls:
         primary_url = saved_urls[0]
         existing_url = parse_repo_url(config_path)
@@ -531,7 +577,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             print(green(f"✓ Primary repository URL saved to {config_path.name}"))
             print()
 
-    # ---- Step 4: offer to fetch the tag index from all repos ----
+    # ---- Step 5: offer to fetch the tag index from all repos ----
     if saved_urls:
         ans = input("  Fetch skill index from repositories now? [Y/n]: ").strip().lower()
         if ans != "n":
@@ -548,6 +594,17 @@ def cmd_init(args: argparse.Namespace) -> int:
                     print(yellow("    Check your SSH key and URL, then run 'aom list --fetch'."))
             print()
             print(green(f"✓ Fetched. {total_tags} total skill version(s) available."))
+
+    # Count local skills if any local paths configured
+    if saved_local_paths:
+        local_skill_count = 0
+        for lp in saved_local_paths:
+            p = Path(lp)
+            if p.is_dir():
+                local_records = scan_repository(p)
+                local_skill_count += len(local_records)
+        if local_skill_count:
+            print(green(f"  ✓ {local_skill_count} skill(s) found in local paths"))
 
     print()
     print(bold("Next steps:"))
@@ -590,6 +647,40 @@ def _prompt_repo_urls() -> list[str]:
             return urls
 
 
+def _prompt_local_paths() -> list[str]:
+    """Interactively prompt the user for local filesystem paths to skill repositories."""
+    print("Enter local filesystem paths to skill repositories.")
+    print("  Separate multiple paths with commas.")
+    print("  Example:")
+    print("    /home/user/my-skills, /home/user/more-skills")
+    print()
+    while True:
+        raw = input("  Local path(s): ").strip()
+        if not raw:
+            print("  At least one path is required.", file=sys.stderr)
+            continue
+
+        paths = [p.strip() for p in raw.split(",") if p.strip()]
+        if not paths:
+            print("  At least one path is required.", file=sys.stderr)
+            continue
+
+        # Validate each path
+        valid = True
+        resolved_paths: list[str] = []
+        for p in paths:
+            resolved = Path(p).expanduser().resolve()
+            if not resolved.is_dir():
+                print(yellow(f"  Warning: directory does not exist: {resolved}"))
+                ans = input("  Add anyway? [y/N]: ").strip().lower()
+                if ans != "y":
+                    valid = False
+                    break
+            resolved_paths.append(str(resolved))
+        if valid:
+            return resolved_paths
+
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -600,6 +691,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="AI Operation Manager",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
+    )
+    from . import __version__
+    parser.add_argument(
+        "-v", "--version", action="version",
+        version=f"%(prog)s {__version__}",
     )
     parser.add_argument("--debug", action="store_true", help="Show full traceback on errors")
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
@@ -723,10 +819,10 @@ def _guess_type(name: str, git_repos: list[GitRepo], repo_records: list) -> str:
         if r.name.lower() == name_lower or r.name.lower().endswith("/" + name_lower):
             return r.artifact_type
 
-    if not git_repos:
-        # Filesystem fallback for local repos
+    # Filesystem fallback — scan configured local paths
+    for local_path in get_local_paths():
         try:
-            repo_path = get_repo_path()
+            repo_path = Path(local_path)
             for t in ARTIFACT_TYPES:
                 type_dir = repo_path / t
                 if (type_dir / name).exists() or list(type_dir.glob(f"{name}.md")):

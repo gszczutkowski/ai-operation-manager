@@ -12,6 +12,10 @@ from aom.settings import (
     set_repo_urls,
     add_repo_url,
     remove_repo_url,
+    get_local_paths,
+    set_local_paths,
+    add_local_path,
+    remove_local_path,
     _load_raw,
     _save_raw,
 )
@@ -53,14 +57,16 @@ class TestSettingsPaths:
 class TestLoadSave:
     def test_load_empty(self):
         data = _load_raw()
-        assert data["version"] == 1
+        assert data["version"] == 2
         assert data["repositories"] == []
+        assert data["local_paths"] == []
 
     def test_save_and_load(self):
-        data = {"version": 1, "repositories": [{"url": "git@example.com:test.git"}]}
+        data = {"version": 2, "repositories": [{"url": "git@example.com:test.git"}], "local_paths": []}
         _save_raw(data)
         loaded = _load_raw()
-        assert loaded == data
+        assert loaded["repositories"] == data["repositories"]
+        assert loaded["local_paths"] == []
 
     def test_load_corrupt_file(self, tmp_path, monkeypatch):
         """Corrupt JSON should fall back to empty settings."""
@@ -69,6 +75,16 @@ class TestLoadSave:
         settings_path.write_text("not valid json", encoding="utf-8")
         data = _load_raw()
         assert data["repositories"] == []
+        assert data["local_paths"] == []
+
+    def test_migrate_v1_to_v2(self):
+        """v1 settings without local_paths should be migrated transparently."""
+        data = {"version": 1, "repositories": [{"url": "git@example.com:test.git"}]}
+        _save_raw(data)
+        loaded = _load_raw()
+        assert loaded["version"] == 2
+        assert loaded["local_paths"] == []
+        assert len(loaded["repositories"]) == 1
 
 
 # ===================================================================
@@ -120,10 +136,80 @@ class TestRepoUrls:
 
     def test_malformed_entries_skipped(self):
         """Entries without 'url' key are ignored."""
-        data = {"version": 1, "repositories": [
+        data = {"version": 2, "repositories": [
             {"url": "git@github.com:a/b.git"},
             {"name": "no-url"},
             "just-a-string",
-        ]}
+        ], "local_paths": []}
         _save_raw(data)
         assert get_repo_urls() == ["git@github.com:a/b.git"]
+
+
+# ===================================================================
+# Local path management
+# ===================================================================
+
+class TestLocalPaths:
+    def test_get_empty(self):
+        assert get_local_paths() == []
+
+    def test_set_and_get(self, tmp_path):
+        paths = [str(tmp_path / "a"), str(tmp_path / "b")]
+        set_local_paths(paths)
+        assert get_local_paths() == paths
+
+    def test_add_new(self, tmp_path):
+        p = str(tmp_path)
+        added = add_local_path(p)
+        assert added is True
+        assert get_local_paths() == [str(tmp_path.resolve())]
+
+    def test_add_duplicate(self, tmp_path):
+        p = str(tmp_path)
+        add_local_path(p)
+        added = add_local_path(p)
+        assert added is False
+        assert len(get_local_paths()) == 1
+
+    def test_add_multiple(self, tmp_path):
+        p1 = tmp_path / "a"
+        p2 = tmp_path / "b"
+        p1.mkdir()
+        p2.mkdir()
+        add_local_path(str(p1))
+        add_local_path(str(p2))
+        result = get_local_paths()
+        assert len(result) == 2
+
+    def test_remove_existing(self, tmp_path):
+        p1 = str(tmp_path / "a")
+        p2 = str(tmp_path / "b")
+        set_local_paths([p1, p2])
+        removed = remove_local_path(p1)
+        assert removed is True
+        assert get_local_paths() == [p2]
+
+    def test_remove_nonexistent(self, tmp_path):
+        removed = remove_local_path(str(tmp_path / "nonexistent"))
+        assert removed is False
+
+    def test_set_replaces(self, tmp_path):
+        set_local_paths([str(tmp_path / "a")])
+        set_local_paths([str(tmp_path / "b")])
+        assert get_local_paths() == [str(tmp_path / "b")]
+
+    def test_malformed_entries_skipped(self):
+        """Empty strings and non-string entries are ignored."""
+        data = {"version": 2, "repositories": [], "local_paths": [
+            "/valid/path",
+            "",
+        ]}
+        _save_raw(data)
+        assert get_local_paths() == ["/valid/path"]
+
+    def test_persists_with_repo_urls(self):
+        """Local paths and repo URLs coexist in settings."""
+        set_repo_urls(["git@github.com:a/b.git"])
+        set_local_paths(["/some/path"])
+        assert get_repo_urls() == ["git@github.com:a/b.git"]
+        assert get_local_paths() == ["/some/path"]

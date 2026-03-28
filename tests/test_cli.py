@@ -135,19 +135,17 @@ class TestSuggestSimilar:
 
 class TestCmdInstall:
     @patch("aom.cli._get_git_repos", return_value=[])
-    @patch("aom.cli.get_repo_path")
-    @patch("aom.cli.scan_repository")
+    @patch("aom.cli.get_local_paths", return_value=[])
     @patch("aom.cli.scan_installed", return_value=[])
     @patch("aom.cli.get_global_dir")
     @patch("aom.cli.get_local_dir")
     @patch("aom.cli.resolve", return_value=None)
     def test_skill_not_found(self, mock_resolve, mock_local,
                              mock_global, mock_scan_inst,
-                             mock_scan_repo, mock_repo,
+                             mock_local_paths,
                              mock_git, capsys):
         mock_global.return_value = Path("/nonexistent")
         mock_local.return_value = Path("/nonexistent")
-        mock_scan_repo.return_value = []
 
         result = main(["install", "nonexistent-skill"])
         assert result == 1

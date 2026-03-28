@@ -6,7 +6,6 @@ from pathlib import Path
 from aom.config import (
     AGENT_MAP,
     ARTIFACT_TYPES,
-    _read_env,
     _detect_agent_from_cwd,
     get_agent,
     get_global_dir,
@@ -38,24 +37,6 @@ class TestConstants:
 
 
 # ===================================================================
-# _read_env
-# ===================================================================
-
-class TestReadEnv:
-    def test_reads_existing(self, monkeypatch):
-        monkeypatch.setenv("TEST_VAR", "hello")
-        assert _read_env("TEST_VAR") == "hello"
-
-    def test_returns_none_for_missing(self, monkeypatch):
-        monkeypatch.delenv("TEST_VAR", raising=False)
-        assert _read_env("TEST_VAR") is None
-
-    def test_returns_none_for_empty(self, monkeypatch):
-        monkeypatch.setenv("TEST_VAR", "")
-        assert _read_env("TEST_VAR") is None
-
-
-# ===================================================================
 # Agent detection
 # ===================================================================
 
@@ -71,22 +52,20 @@ class TestDetectAgent:
 
 
 class TestGetAgent:
-    def test_from_env(self, monkeypatch):
-        """AI_AGENT_DEFAULT env var should select the agent."""
-        import aom.config as cfg
-        monkeypatch.setattr(cfg, "_AGENT_CACHE", None)
-        monkeypatch.setenv("AI_AGENT_DEFAULT", "ClaudeCode")
-        # No CLAUDE.md in CWD, so detection won't find it
-        monkeypatch.chdir(Path(__file__).parent)
-        assert get_agent() == "ClaudeCode"
-
     def test_auto_select_single_agent(self, monkeypatch, tmp_path):
         """When only one agent in AGENT_MAP, auto-select it."""
         import aom.config as cfg
         monkeypatch.setattr(cfg, "_AGENT_CACHE", None)
-        monkeypatch.delenv("AI_AGENT_DEFAULT", raising=False)
         monkeypatch.chdir(tmp_path)
         # AGENT_MAP has only ClaudeCode by default
+        assert get_agent() == "ClaudeCode"
+
+    def test_detect_from_config_file(self, monkeypatch, tmp_path):
+        """Config file in CWD should detect the agent."""
+        import aom.config as cfg
+        monkeypatch.setattr(cfg, "_AGENT_CACHE", None)
+        (tmp_path / "CLAUDE.md").touch()
+        monkeypatch.chdir(tmp_path)
         assert get_agent() == "ClaudeCode"
 
 
