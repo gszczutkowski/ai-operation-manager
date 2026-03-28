@@ -35,6 +35,15 @@ class TestConstants:
         assert cfg["dir_name"] == ".claude"
         assert cfg["config_file"] == "CLAUDE.md"
 
+    def test_agent_map_has_kiro(self):
+        assert "Kiro" in AGENT_MAP
+        cfg = AGENT_MAP["Kiro"]
+        assert cfg["dir_name"] == ".kiro"
+        assert cfg["config_file"] == ".kiro"
+        assert cfg["type_dirs"]["skills"] == "steering"
+        assert cfg["type_dirs"]["commands"] == "steering"
+        assert cfg["type_dirs"]["hooks"] == "hooks"
+
 
 # ===================================================================
 # Agent detection
@@ -46,6 +55,11 @@ class TestDetectAgent:
         monkeypatch.chdir(tmp_path)
         assert _detect_agent_from_cwd() == "ClaudeCode"
 
+    def test_detect_kiro_from_cwd(self, tmp_path, monkeypatch):
+        (tmp_path / ".kiro").mkdir()
+        monkeypatch.chdir(tmp_path)
+        assert _detect_agent_from_cwd() == "Kiro"
+
     def test_no_detection(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         assert _detect_agent_from_cwd() is None
@@ -56,8 +70,8 @@ class TestGetAgent:
         """When only one agent in AGENT_MAP, auto-select it."""
         import aom.config as cfg
         monkeypatch.setattr(cfg, "_AGENT_CACHE", None)
+        monkeypatch.setattr(cfg, "AGENT_MAP", {"ClaudeCode": cfg.AGENT_MAP["ClaudeCode"]})
         monkeypatch.chdir(tmp_path)
-        # AGENT_MAP has only ClaudeCode by default
         assert get_agent() == "ClaudeCode"
 
     def test_detect_from_config_file(self, monkeypatch, tmp_path):
