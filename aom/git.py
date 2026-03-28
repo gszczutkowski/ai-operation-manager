@@ -22,11 +22,13 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import platform
 import re
 import subprocess
 import tarfile
+import time
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -107,6 +109,56 @@ class GitRepo:
             ["git", "fetch", "--tags", "--prune", "origin"],
             cwd=self.cache_dir,
             capture=False,
+        )
+        self._save_last_fetched()
+
+    def fetch_if_stale(self, ttl_seconds: int = 3600, verbose: bool = True) -> bool:
+        """
+        Fetch from remote only if the last fetch was more than *ttl_seconds*
+        ago.  Returns True if a fetch was performed.
+        """
+        if not self.is_cloned:
+            self.ensure_cloned(verbose=verbose)
+            self._save_last_fetched()
+            return True
+
+        last = self._load_last_fetched()
+        if last is not None and (time.time() - last) < ttl_seconds:
+            return False
+
+        if verbose:
+            print(f"  Auto-refreshing {self.url} (index stale) …", flush=True)
+        self._run(
+            ["git", "fetch", "--tags", "--prune", "origin"],
+            cwd=self.cache_dir,
+            capture=False,
+        )
+        self._save_last_fetched()
+        return True
+
+    # ------------------------------------------------------------------
+    # Fetch timestamp persistence
+    # ------------------------------------------------------------------
+
+    @property
+    def _meta_path(self) -> Path:
+        return self.cache_dir / ".aom_meta.json"
+
+    def _load_last_fetched(self) -> float | None:
+        try:
+            data = json.loads(self._meta_path.read_text(encoding="utf-8"))
+            return data.get("last_fetched")
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return None
+
+    def _save_last_fetched(self) -> None:
+        try:
+            data = json.loads(self._meta_path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            data = {}
+        data["last_fetched"] = time.time()
+        self._meta_path.write_text(
+            json.dumps(data, indent=2), encoding="utf-8",
         )
 
     # ------------------------------------------------------------------

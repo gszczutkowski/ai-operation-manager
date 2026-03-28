@@ -14,7 +14,7 @@ from aom.registry import Registry
 def install_dir(tmp_path):
     """Create a target install directory with standard subdirs."""
     d = tmp_path / "install"
-    for sub in ("commands", "agents", "hooks"):
+    for sub in ("skills", "commands", "agents", "hooks"):
         (d / sub).mkdir(parents=True)
     return d
 
@@ -67,29 +67,29 @@ class TestCopy:
 # ===================================================================
 
 class TestDestination:
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_directory_record(self, mock_subdir, tmp_path, install_dir):
         src = tmp_path / "my-skill"
         src.mkdir()
         record = SkillRecord("my-skill", "skills", src, parse_version("1.0.0"), "metadata")
         dest = _destination(record, install_dir)
-        assert dest == install_dir / "commands" / "my-skill"
+        assert dest == install_dir / "skills" / "my-skill"
 
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_flat_file_record(self, mock_subdir, tmp_path, install_dir):
         src = tmp_path / "deploy.md"
         src.touch()
         record = SkillRecord("deploy", "skills", src, parse_version("1.0.0"), "metadata")
         dest = _destination(record, install_dir)
-        assert dest == install_dir / "commands" / "deploy.md"
+        assert dest == install_dir / "skills" / "deploy.md"
 
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_nested_name(self, mock_subdir, tmp_path, install_dir):
         src = tmp_path / "painter.md"
         src.touch()
         record = SkillRecord("child/painter", "skills", src, parse_version("1.0.0"), "metadata")
         dest = _destination(record, install_dir)
-        assert dest == install_dir / "commands" / "child" / "painter.md"
+        assert dest == install_dir / "skills" / "child" / "painter.md"
 
     def test_no_path_raises(self, install_dir):
         record = SkillRecord("x", "skills", None, parse_version("1.0.0"), "git")
@@ -102,7 +102,7 @@ class TestDestination:
 # ===================================================================
 
 class TestInstall:
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_install_file(self, mock_subdir, tmp_path, install_dir, registry):
         src = tmp_path / "my-skill.md"
         src.write_text("content", encoding="utf-8")
@@ -113,7 +113,7 @@ class TestInstall:
         assert dest.read_text(encoding="utf-8") == "content"
         assert registry.get_version("skills/my-skill") == "1.0.0"
 
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_install_directory(self, mock_subdir, tmp_path, install_dir, registry):
         src = tmp_path / "my-skill"
         src.mkdir()
@@ -125,14 +125,14 @@ class TestInstall:
         assert (dest / "SKILL.md").exists()
         assert registry.get_version("skills/my-skill") == "2.0.0"
 
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_no_overwrite(self, mock_subdir, tmp_path, install_dir, registry):
         src = tmp_path / "x.md"
         src.write_text("new", encoding="utf-8")
         record = SkillRecord("x", "skills", src, parse_version("1.0.0"), "metadata")
 
         # Pre-install
-        existing = install_dir / "commands" / "x.md"
+        existing = install_dir / "skills" / "x.md"
         existing.write_text("existing", encoding="utf-8")
 
         dest = install(record, install_dir, registry, overwrite=False)
@@ -143,7 +143,7 @@ class TestInstall:
         with pytest.raises(RuntimeError, match="no local path"):
             install(record, install_dir, registry, git_repo=None)
 
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_install_from_git_tree(self, mock_subdir, install_dir, registry):
         git_repo = MagicMock()
         git_repo.get_object_type.return_value = "tree"
@@ -155,7 +155,7 @@ class TestInstall:
         git_repo.extract_path_at_tag.assert_called_once()
         assert registry.get_version("skills/my-skill") == "1.0.0"
 
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_install_from_git_blob(self, mock_subdir, install_dir, registry):
         git_repo = MagicMock()
         git_repo.get_object_type.return_value = "blob"
@@ -174,9 +174,9 @@ class TestInstall:
 # ===================================================================
 
 class TestUninstall:
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_uninstall_module(self, mock_subdir, install_dir, registry):
-        module = install_dir / "commands" / "my-skill"
+        module = install_dir / "skills" / "my-skill"
         module.mkdir(parents=True)
         (module / "SKILL.md").touch()
         registry.set_version("skills/my-skill", "1.0.0")
@@ -186,9 +186,9 @@ class TestUninstall:
         assert not module.exists()
         assert registry.get_version("skills/my-skill") is None
 
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_uninstall_flat_file(self, mock_subdir, install_dir, registry):
-        flat = install_dir / "commands" / "deploy.md"
+        flat = install_dir / "skills" / "deploy.md"
         flat.write_text("x", encoding="utf-8")
         registry.set_version("skills/deploy", "1.0.0")
 
@@ -196,7 +196,7 @@ class TestUninstall:
         assert removed is True
         assert not flat.exists()
 
-    @patch("aom.installer.get_type_subdir", return_value="commands")
+    @patch("aom.installer.get_type_subdir", return_value="skills")
     def test_uninstall_not_found(self, mock_subdir, install_dir, registry):
         removed = uninstall("skills", "nonexistent", install_dir, registry)
         assert removed is False

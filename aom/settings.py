@@ -2,19 +2,22 @@
 Global user settings for aom.
 
 Stores configuration that is shared across all projects, such as the list
-of skill repository URLs.  The settings file lives outside any project
-directory so that ``aom init`` in a new project can reuse previously
-configured repositories without re-prompting.
+of skill repository URLs and optional local filesystem paths.  The settings
+file lives outside any project directory so that ``aom init`` in a new
+project can reuse previously configured repositories without re-prompting.
 
 Settings location:
   Linux/macOS: ~/.config/aom/settings.json
   Windows:     %APPDATA%/aom/settings.json
 
-Schema (version 1):
+Schema (version 2):
 {
-  "version": 1,
+  "version": 2,
   "repositories": [
     {"url": "git@github.com:myorg/ai-grimoire.git"}
+  ],
+  "local_paths": [
+    "/home/user/my-local-skills"
   ]
 }
 """
@@ -27,7 +30,7 @@ import tempfile
 from pathlib import Path
 
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 
 
 # ---------------------------------------------------------------------------
@@ -57,27 +60,26 @@ def get_settings_path() -> Path:
 def _load_raw() -> dict:
     path = get_settings_path()
     if not path.is_file():
-        return {"version": _SCHEMA_VERSION, "repositories": []}
+        return {"version": _SCHEMA_VERSION, "repositories": [], "local_paths": []}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data.get("version", _SCHEMA_VERSION) != _SCHEMA_VERSION:
-            print(
-                f"Warning: settings at {path} has schema version "
-                f"{data.get('version')} (expected {_SCHEMA_VERSION})",
-                file=sys.stderr,
-            )
+        # Migrate from v1 → v2: ensure local_paths key exists
+        if "local_paths" not in data:
+            data["local_paths"] = []
+        data["version"] = _SCHEMA_VERSION
         return data
     except (json.JSONDecodeError, OSError) as exc:
         print(
             f"Warning: corrupt settings at {path}, starting fresh: {exc}",
             file=sys.stderr,
         )
-        return {"version": _SCHEMA_VERSION, "repositories": []}
+        return {"version": _SCHEMA_VERSION, "repositories": [], "local_paths": []}
 
 
 def _save_raw(data: dict) -> None:
     path = get_settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    data["version"] = _SCHEMA_VERSION
     content = json.dumps(data, indent=2, ensure_ascii=False)
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=".settings-")
     try:
@@ -125,3 +127,64 @@ def remove_repo_url(url: str) -> bool:
     urls.remove(url)
     set_repo_urls(urls)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Local path management
+# ---------------------------------------------------------------------------
+
+def get_local_paths() -> list[str]:
+    """Return all configured local filesystem paths from global settings."""
+    data = _load_raw()
+    paths = data.get("local_paths", [])
+    return [p for p in paths if isinstance(p, str) and p]
+
+
+def set_local_paths(paths: list[str]) -> None:
+    """Replace the local paths list in global settings with *paths*."""
+    data = _load_raw()
+    data["local_paths"] = paths
+    _save_raw(data)
+
+
+def add_local_path(path: str) -> bool:
+    """Add *path* to the local paths list if not already present. Returns True if added."""
+    paths = get_local_paths()
+    normalized = str(Path(path).resolve())
+    for existing in paths:
+        if str(Path(existing).resolve()) == normalized:
+            return False
+    paths.append(normalized)
+    set_local_paths(paths)
+    return True
+
+
+def remove_local_path(path: str) -> bool:
+    """Remove *path* from the local paths list. Returns True if removed."""
+    paths = get_local_paths()
+    normalized = str(Path(path).resolve())
+    new_paths = [p for p in paths if str(Path(p).resolve()) != normalized]
+    if len(new_paths) == len(paths):
+        return False
+    set_local_paths(new_paths)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Fetch TTL management
+# ---------------------------------------------------------------------------
+
+_DEFAULT_FETCH_TTL = 3600  # 1 hour
+
+
+def get_fetch_ttl() -> int:
+    """Return the configured fetch TTL in seconds (default: 3600)."""
+    data = _load_raw()
+    return int(data.get("fetch_ttl_seconds", _DEFAULT_FETCH_TTL))
+
+
+def set_fetch_ttl(seconds: int) -> None:
+    """Set the fetch TTL in seconds."""
+    data = _load_raw()
+    data["fetch_ttl_seconds"] = seconds
+    _save_raw(data)

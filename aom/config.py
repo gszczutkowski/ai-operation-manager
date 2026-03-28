@@ -1,17 +1,11 @@
 """
 Configuration and environment management.
 
-Resolves AI_SKILLS_REPO_PATH / AI_SKILLS_SCRIPTS_PATH, prompts when absent,
-and persists the values to the user's shell profile (Linux/macOS) or Windows
-environment (via setx).
+Resolves AI agent, path locations, and repository sources from global
+user settings and project config files.
 """
 from __future__ import annotations
 
-import os
-import platform
-import re
-import shlex
-import subprocess
 import sys
 from pathlib import Path
 from typing import TypedDict
@@ -40,7 +34,7 @@ AGENT_MAP: dict[str, AgentConfig] = {
         "dir_name":    ".claude",        # ~/.claude  /  <project>/.claude
         "config_file": "CLAUDE.md",      # project requirements live here
         "type_dirs": {                   # grimoire type  →  agent subdir
-            "skills":   "commands",
+            "skills":   "skills",
             "commands": "commands",
             "agents":   "agents",
             "hooks":    "hooks",
@@ -80,52 +74,6 @@ LOCAL_REGISTRY_NAME = "registry.json"
 
 
 # ---------------------------------------------------------------------------
-# Environment variable helpers
-# ---------------------------------------------------------------------------
-
-def _read_env(var: str) -> str | None:
-    return os.environ.get(var) or None
-
-
-def _persist_env_unix(var: str, value: str) -> None:
-    """Append export to ~/.bashrc and ~/.zshrc (best-effort)."""
-    line = f'\nexport {var}={shlex.quote(value)}\n'
-    for rc in (Path.home() / ".bashrc", Path.home() / ".zshrc"):
-        try:
-            existing = rc.read_text(encoding="utf-8") if rc.exists() else ""
-            if not re.search(rf'^export {re.escape(var)}=', existing, re.MULTILINE):
-                with rc.open("a", encoding="utf-8") as f:
-                    f.write(line)
-                print(f"  → Persisted to {rc}")
-        except OSError as exc:
-            print(f"  ⚠  Could not write to {rc}: {exc}", file=sys.stderr)
-
-
-def _persist_env_windows(var: str, value: str) -> None:
-    """Persist to Windows user environment via setx."""
-    try:
-        subprocess.run(
-            ["setx", var, value],
-            check=True,
-            capture_output=True,
-        )
-        print(f"  → Persisted to Windows user environment ({var})")
-    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        print(f"  ⚠  Could not run setx: {exc}", file=sys.stderr)
-        print(
-            f"  ⚠  Set {var}={value!r} in System Properties → Environment Variables manually.",
-            file=sys.stderr,
-        )
-
-
-def _persist_env(var: str, value: str) -> None:
-    if platform.system() == "Windows":
-        _persist_env_windows(var, value)
-    else:
-        _persist_env_unix(var, value)
-
-
-# ---------------------------------------------------------------------------
 # AI Agent detection
 # ---------------------------------------------------------------------------
 
@@ -148,11 +96,10 @@ def get_agent() -> str:
     Resolution order:
       1. In-process cache (already resolved this session).
       2. Config file detected in CWD (e.g. CLAUDE.md → ClaudeCode).
-      3. AI_AGENT_DEFAULT environment variable.
-      4. Auto-select when only one agent is defined in AGENT_MAP.
-      5. Interactive prompt listing all available agents.
+      3. Auto-select when only one agent is defined in AGENT_MAP.
+      4. Interactive prompt listing all available agents.
 
-    The selected agent is cached in-process and persisted to the environment.
+    The selected agent is cached in-process.
     """
     global _AGENT_CACHE
     if _AGENT_CACHE is not None:
@@ -164,24 +111,10 @@ def get_agent() -> str:
         _AGENT_CACHE = detected
         return _AGENT_CACHE
 
-    raw = os.environ.get("AI_AGENT_DEFAULT", "").strip()
-    if raw:
-        if raw in AGENT_MAP:
-            _AGENT_CACHE = raw
-            return _AGENT_CACHE
-        print(
-            f"  ⚠  AI_AGENT_DEFAULT={raw!r} is not a known agent. "
-            f"Available: {', '.join(AGENT_MAP)}",
-            file=sys.stderr,
-        )
-
     agents = list(AGENT_MAP.keys())
 
     if len(agents) == 1:
         _AGENT_CACHE = agents[0]
-        print(f"  Using AI agent: {_AGENT_CACHE}  "
-              f"(set AI_AGENT_DEFAULT to skip this message)")
-        os.environ["AI_AGENT_DEFAULT"] = _AGENT_CACHE
         return _AGENT_CACHE
 
     print()
@@ -205,8 +138,6 @@ def get_agent() -> str:
             break
         print(f"  Invalid selection: {choice!r}. Try again.", file=sys.stderr)
 
-    os.environ["AI_AGENT_DEFAULT"] = _AGENT_CACHE
-    _persist_env("AI_AGENT_DEFAULT", _AGENT_CACHE)
     return _AGENT_CACHE
 
 
@@ -233,7 +164,7 @@ def get_type_subdir(artifact_type: str) -> str:
     """
     Map a grimoire artifact type to the agent-specific subdirectory name.
 
-    Example (ClaudeCode): "skills" → "commands", "agents" → "agents"
+    Example (ClaudeCode): "skills" → "skills", "agents" → "agents"
     """
     type_dirs = AGENT_MAP[get_agent()].get("type_dirs", {})
     return type_dirs.get(artifact_type, artifact_type)
@@ -265,76 +196,8 @@ def ensure_local_dir(project_dir: Path | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Path resolution for repo / scripts
+# Local directory / registry helpers
 # ---------------------------------------------------------------------------
-
-def _prompt_path(var: str, description: str) -> Path:
-    """Ask the user for a directory path, validate it, then persist the env var."""
-    while True:
-        raw = input(f"\n{description}\n  {var} is not set. Enter the path: ").strip()
-        if not raw:
-            print("  Path cannot be empty.", file=sys.stderr)
-            continue
-        p = Path(raw).expanduser().resolve()
-        if not p.is_dir():
-            print(f"  Directory does not exist: {p}", file=sys.stderr)
-            continue
-        os.environ[var] = str(p)
-        _persist_env(var, str(p))
-        return p
-
-
-def get_repo_path() -> Path:
-    """Return the absolute path to the skills repository."""
-    raw = _read_env("AI_SKILLS_REPO_PATH")
-    if raw:
-        p = Path(raw).expanduser().resolve()
-        if p.is_dir():
-            return p
-        print(
-            f"  ⚠  AI_SKILLS_REPO_PATH={raw!r} does not exist or is not a directory.",
-            file=sys.stderr,
-        )
-
-    # Fall back: scripts_path parent (ai-grimoire/scripts/../ == ai-grimoire/)
-    scripts_raw = _read_env("AI_SKILLS_SCRIPTS_PATH")
-    if scripts_raw:
-        candidate = Path(scripts_raw).expanduser().resolve().parent
-        if (candidate / "skills").is_dir():
-            os.environ["AI_SKILLS_REPO_PATH"] = str(candidate)
-            return candidate
-
-    # Fall back: resolve relative to this file's location (…/aom/config.py → repo root)
-    candidate = Path(__file__).resolve().parent.parent.parent
-    if (candidate / "skills").is_dir():
-        os.environ["AI_SKILLS_REPO_PATH"] = str(candidate)
-        return candidate
-
-    return _prompt_path(
-        "AI_SKILLS_REPO_PATH",
-        "The AI skills repository path (the root of ai-grimoire).",
-    )
-
-
-def get_scripts_path() -> Path:
-    """Return the absolute path to the scripts directory."""
-    raw = _read_env("AI_SKILLS_SCRIPTS_PATH")
-    if raw:
-        p = Path(raw).expanduser().resolve()
-        if p.is_dir():
-            return p
-
-    # Fall back: resolve relative to this file's location
-    candidate = Path(__file__).resolve().parent.parent
-    if (candidate / "aom").is_dir():
-        os.environ["AI_SKILLS_SCRIPTS_PATH"] = str(candidate)
-        return candidate
-
-    return _prompt_path(
-        "AI_SKILLS_SCRIPTS_PATH",
-        "The AI scripts directory path (ai-grimoire/scripts).",
-    )
-
 
 def get_local_dir(project_dir: Path | None = None) -> Path:
     """Return the local agent directory for *project_dir* (cwd by default).
@@ -352,13 +215,16 @@ def get_local_registry(project_dir: Path | None = None) -> Path:
     return get_local_dir(project_dir) / LOCAL_REGISTRY_NAME
 
 
+# ---------------------------------------------------------------------------
+# Repository URL resolution
+# ---------------------------------------------------------------------------
+
 def get_repo_url(project_dir: Path | None = None) -> str | None:
     """
     Read the skills repository URL from the project's agent config file
     (e.g. CLAUDE.md → ``## Skills Source`` → ``url``).
 
-    Returns None if no URL is configured (caller should fall back to
-    ``get_repo_path()`` for local development).
+    Returns None if no URL is configured.
     """
     from .manifest import parse_repo_url
     project = (project_dir or Path.cwd()).resolve()
@@ -395,3 +261,13 @@ def get_repo_urls(project_dir: Path | None = None) -> list[str]:
         seen.add(project_url)
 
     return urls
+
+
+def get_local_paths() -> list[str]:
+    """
+    Return all configured local filesystem paths for skill repositories.
+
+    Reads from global user settings (``~/.config/aom/settings.json``).
+    """
+    from .settings import get_local_paths as _global_local_paths
+    return _global_local_paths()

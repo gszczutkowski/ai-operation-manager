@@ -90,6 +90,31 @@ class TestBuildParser:
         args = parser.parse_args(["install", "x", "--fetch"])
         assert args.fetch is True
 
+    def test_no_fetch_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["install", "x", "--no-fetch"])
+        assert args.no_fetch is True
+
+    def test_fetch_command(self):
+        parser = build_parser()
+        args = parser.parse_args(["fetch"])
+        assert args.command == "fetch"
+
+    def test_list_no_fetch(self):
+        parser = build_parser()
+        args = parser.parse_args(["list", "--no-fetch"])
+        assert args.no_fetch is True
+
+    def test_sync_no_fetch(self):
+        parser = build_parser()
+        args = parser.parse_args(["sync", "--no-fetch"])
+        assert args.no_fetch is True
+
+    def test_update_no_fetch(self):
+        parser = build_parser()
+        args = parser.parse_args(["update", "x", "--no-fetch"])
+        assert args.no_fetch is True
+
     def test_debug_flag(self):
         parser = build_parser()
         args = parser.parse_args(["--debug", "list"])
@@ -135,19 +160,17 @@ class TestSuggestSimilar:
 
 class TestCmdInstall:
     @patch("aom.cli._get_git_repos", return_value=[])
-    @patch("aom.cli.get_repo_path")
-    @patch("aom.cli.scan_repository")
+    @patch("aom.cli.get_local_paths", return_value=[])
     @patch("aom.cli.scan_installed", return_value=[])
     @patch("aom.cli.get_global_dir")
     @patch("aom.cli.get_local_dir")
     @patch("aom.cli.resolve", return_value=None)
     def test_skill_not_found(self, mock_resolve, mock_local,
                              mock_global, mock_scan_inst,
-                             mock_scan_repo, mock_repo,
+                             mock_local_paths,
                              mock_git, capsys):
         mock_global.return_value = Path("/nonexistent")
         mock_local.return_value = Path("/nonexistent")
-        mock_scan_repo.return_value = []
 
         result = main(["install", "nonexistent-skill"])
         assert result == 1
