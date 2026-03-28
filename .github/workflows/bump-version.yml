@@ -1,0 +1,112 @@
+name: Bump Version
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  bump-version:
+    name: Bump version and create tag
+    # Only run when a PR is actually merged (not just closed)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags needed to find the latest version tag
+          fetch-depth: 0
+          # PAT is required so the created tag triggers downstream workflows
+          # (tags pushed via the default GITHUB_TOKEN do NOT trigger workflows)
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Determine version bump
+        id: bump
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # ------------------------------------------------------------------
+          # 1. Find the latest version tag
+          # ------------------------------------------------------------------
+          LATEST_TAG=$(git tag -l 'v*' --sort=-version:refname | head -n 1 | sed 's/^v//')
+
+          if [[ ! "$LATEST_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "No valid version tag found — using v1.0.0 as baseline"
+            LATEST_TAG="1.0.0"
+          fi
+
+          echo "Latest version: $LATEST_TAG"
+
+          # ------------------------------------------------------------------
+          # 2. Parse current version components
+          # ------------------------------------------------------------------
+          MAJOR=${LATEST_TAG%%.*}
+          MINOR_PATCH=${LATEST_TAG#*.}
+          MINOR=${MINOR_PATCH%.*}
+          PATCH=${LATEST_TAG##*.}
+
+          # ------------------------------------------------------------------
+          # 3. Determine bump type from PR title and body
+          #
+          #    Conventional Commits standard:
+          #      - BREAKING CHANGE in body or ! after type  → major
+          #      - feat: / feat(scope):                     → minor
+          #      - anything else (fix, chore, docs, …)      → patch
+          # ------------------------------------------------------------------
+          BUMP="patch"
+
+          # Check for breaking change indicator in the PR title:
+          #   type!: description   or   type(scope)!: description
+          if [[ "$PR_TITLE" =~ ^[a-zA-Z]+(\([a-zA-Z0-9_/-]+\))?!:[[:space:]]* ]]; then
+            BUMP="major"
+          # Check for BREAKING CHANGE in PR body (per Conventional Commits spec)
+          elif echo "$PR_BODY" | grep -qE '^BREAKING CHANGE:[[:space:]]'; then
+            BUMP="major"
+          # Check for feat type (with optional scope)
+          elif [[ "$PR_TITLE" =~ ^feat(\([a-zA-Z0-9_/-]+\))?:[[:space:]]* ]]; then
+            BUMP="minor"
+          fi
+
+          # ------------------------------------------------------------------
+          # 4. Calculate new version
+          # ------------------------------------------------------------------
+          case "$BUMP" in
+            major)
+              NEW_VERSION="$((MAJOR + 1)).0.0"
+              ;;
+            minor)
+              NEW_VERSION="$MAJOR.$((MINOR + 1)).0"
+              ;;
+            patch)
+              NEW_VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+              ;;
+          esac
+
+          echo "Bump type: $BUMP"
+          echo "New version: v$NEW_VERSION"
+
+          echo "new_version=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "bump_type=$BUMP" >> "$GITHUB_OUTPUT"
+
+      - name: Check tag does not already exist
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          if git rev-parse "$NEW_VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag $NEW_VERSION already exists — aborting"
+            exit 1
+          fi
+
+      - name: Create and push tag
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          BUMP_TYPE: ${{ steps.bump.outputs.bump_type }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW_VERSION" -m "Release $NEW_VERSION ($BUMP_TYPE)"
+          git push origin "$NEW_VERSION"
+          echo "### Version bumped: \`$NEW_VERSION\` ($BUMP_TYPE)" >> "$GITHUB_STEP_SUMMARY"

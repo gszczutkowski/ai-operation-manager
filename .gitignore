@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AI Agents
+.claude
+CLAUDE.md
+
+# Auto-generated version file (setuptools-scm)
+aom/_version.py
+
+# Test / coverage artifacts
+htmlcov/
+.coverage
+.pytest_cache/
+*.cover
+reviews
+
+# ai-operation-manager runtime
+# (local git clone cache is in ~/.cache/ai-operation-manager — not committed)
