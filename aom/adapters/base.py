@@ -11,7 +11,7 @@ import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from ..models import SkillRecord, Version
+from ..models import SkillRecord  # noqa: F401 — used by subclasses
 
 # Shared semver pattern used by multiple adapters
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-.+)?$")

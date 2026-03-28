@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from aom.adapters.suffix_adapter import SuffixAdapter
 from aom.adapters.dir_adapter import DirAdapter
 from aom.adapters.metadata_adapter import MetadataAdapter

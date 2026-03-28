@@ -1,13 +1,10 @@
 """Shared fixtures for the aom test suite."""
 from __future__ import annotations
 
-import io
-import os
 import sys
 import pytest
-from pathlib import Path
 
-from aom.models import SkillRecord, Version, parse_version
+from aom.models import SkillRecord, parse_version
 
 
 @pytest.fixture(autouse=True)

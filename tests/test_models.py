@@ -2,11 +2,8 @@
 from __future__ import annotations
 
 import warnings
-from pathlib import Path
 
-import pytest
-
-from aom.models import Version, VersionRequirement, SkillRecord, parse_version
+from aom.models import VersionRequirement, SkillRecord, parse_version
 
 
 # ===================================================================

@@ -15,7 +15,7 @@ Constraint syntax supported:
 from __future__ import annotations
 
 
-from .models import SkillRecord, Version, VersionRequirement, parse_version
+from .models import SkillRecord, Version, VersionRequirement  # noqa: F401
 
 
 # ---------------------------------------------------------------------------

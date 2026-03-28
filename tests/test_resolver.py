@@ -1,9 +1,7 @@
 """Tests for aom.resolver — version resolution logic."""
 from __future__ import annotations
 
-import pytest
-
-from aom.models import SkillRecord, VersionRequirement, parse_version
+from aom.models import VersionRequirement, parse_version
 from aom.resolver import resolve, resolve_latest, resolve_all, latest_available
 
 

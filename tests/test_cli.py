@@ -1,9 +1,8 @@
 """Tests for aom.cli — argument parsing and command dispatch."""
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -135,16 +134,17 @@ class TestSuggestSimilar:
 # ===================================================================
 
 class TestCmdInstall:
-    @patch("aom.cli._get_git_repo", return_value=None)
+    @patch("aom.cli._get_git_repos", return_value=[])
     @patch("aom.cli.get_repo_path")
     @patch("aom.cli.scan_repository")
     @patch("aom.cli.scan_installed", return_value=[])
     @patch("aom.cli.get_global_dir")
     @patch("aom.cli.get_local_dir")
     @patch("aom.cli.resolve", return_value=None)
-    def test_skill_not_found(self, mock_resolve, mock_local, mock_global,
-                              mock_scan_inst, mock_scan_repo, mock_repo,
-                              mock_git, capsys):
+    def test_skill_not_found(self, mock_resolve, mock_local,
+                             mock_global, mock_scan_inst,
+                             mock_scan_repo, mock_repo,
+                             mock_git, capsys):
         mock_global.return_value = Path("/nonexistent")
         mock_local.return_value = Path("/nonexistent")
         mock_scan_repo.return_value = []

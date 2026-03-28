@@ -367,3 +367,31 @@ def get_repo_url(project_dir: Path | None = None) -> str | None:
     except (KeyError, FileNotFoundError):
         return None
     return parse_repo_url(project / config_file)
+
+
+def get_repo_urls(project_dir: Path | None = None) -> list[str]:
+    """
+    Return all configured repository URLs.
+
+    Sources (in order, deduplicated):
+      1. Global user settings (``~/.config/aom/settings.json``).
+      2. Project config file (``CLAUDE.md`` → ``## Skills Source``).
+
+    Returns an empty list when no repositories are configured anywhere.
+    """
+    from .settings import get_repo_urls as _global_urls
+
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    for u in _global_urls():
+        if u not in seen:
+            urls.append(u)
+            seen.add(u)
+
+    project_url = get_repo_url(project_dir)
+    if project_url and project_url not in seen:
+        urls.append(project_url)
+        seen.add(project_url)
+
+    return urls

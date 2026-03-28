@@ -1,8 +1,6 @@
 """Tests for aom.installer — install and uninstall logic."""
 from __future__ import annotations
 
-import shutil
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -153,7 +151,7 @@ class TestInstall:
         record = SkillRecord("my-skill", "skills", None, parse_version("1.0.0"), "git",
                              git_tag="skills/my-skill@1.0.0")
 
-        dest = install(record, install_dir, registry, git_repo=git_repo)
+        install(record, install_dir, registry, git_repo=git_repo)
         git_repo.extract_path_at_tag.assert_called_once()
         assert registry.get_version("skills/my-skill") == "1.0.0"
 

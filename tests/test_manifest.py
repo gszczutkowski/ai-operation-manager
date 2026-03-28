@@ -1,10 +1,6 @@
 """Tests for aom.manifest — CLAUDE.md parsing and writing."""
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from aom.manifest import (
     parse_manifest,
     write_manifest,

@@ -29,7 +29,7 @@ from .config import (
     get_local_dir,
     get_local_registry,
     get_repo_path,
-    get_repo_url,
+    get_repo_urls,
 )
 from .discovery import scan_git_repository, scan_installed, scan_repository
 from .git import GitRepo
@@ -37,7 +37,11 @@ from .installer import install, uninstall
 from .manifest import parse_manifest, parse_repo_url, write_repo_url
 from .models import SkillRecord, VersionRequirement
 from .registry import Registry
-from .resolver import latest_available, resolve, resolve_all, resolve_latest
+from .resolver import resolve, resolve_all, resolve_latest
+from .settings import (
+    get_repo_urls as get_global_repo_urls,
+    set_repo_urls as set_global_repo_urls,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -46,38 +50,59 @@ from .resolver import latest_available, resolve, resolve_all, resolve_latest
 
 _USE_COLOUR = sys.stdout.isatty()
 
+
 def _c(text: str, code: str) -> str:
     return f"\033[{code}m{text}\033[0m" if _USE_COLOUR else text
 
-def green(t: str) -> str:  return _c(t, "32")
+
+def green(t: str) -> str: return _c(t, "32")
 def yellow(t: str) -> str: return _c(t, "33")
-def red(t: str) -> str:    return _c(t, "31")
-def bold(t: str) -> str:   return _c(t, "1")
-def dim(t: str) -> str:    return _c(t, "2")
+def red(t: str) -> str: return _c(t, "31")
+def bold(t: str) -> str: return _c(t, "1")
+def dim(t: str) -> str: return _c(t, "2")
 
 
 # ---------------------------------------------------------------------------
-# Repository source helpers
+# Repository source helpers (multi-repo)
 # ---------------------------------------------------------------------------
 
-def _get_git_repo(project_dir=None) -> GitRepo | None:
-    """Return a GitRepo if a URL is configured in the project config, else None."""
-    url = get_repo_url(project_dir)
-    return GitRepo(url) if url else None
+def _get_git_repos(project_dir=None) -> list[GitRepo]:
+    """Return GitRepo instances for all configured repository URLs."""
+    urls = get_repo_urls(project_dir)
+    return [GitRepo(url) for url in urls]
 
 
-def _get_repo_records(git_repo: GitRepo | None) -> list:
-    """Return skill records from the git repo or local filesystem."""
-    if git_repo is not None:
-        return scan_git_repository(git_repo)
+def _get_repo_records(git_repos: list[GitRepo]) -> list:
+    """Return aggregated skill records from all git repos or local filesystem."""
+    if git_repos:
+        records: list = []
+        for repo in git_repos:
+            records.extend(scan_git_repository(repo))
+        return records
     return scan_repository(get_repo_path())
 
 
-def _fetch_if_requested(git_repo: GitRepo | None, fetch: bool) -> None:
-    if git_repo is not None and fetch:
-        git_repo.fetch(verbose=True)
-    elif git_repo is not None and not git_repo.is_cloned:
-        git_repo.ensure_cloned(verbose=True)
+def _fetch_if_requested(git_repos: list[GitRepo], fetch: bool) -> None:
+    for repo in git_repos:
+        if fetch:
+            repo.fetch(verbose=True)
+        elif not repo.is_cloned:
+            repo.ensure_cloned(verbose=True)
+
+
+def _find_git_repo_for_record(record: SkillRecord, git_repos: list[GitRepo]) -> GitRepo | None:
+    """Find the GitRepo that contains *record* (by matching git_tag against tags)."""
+    if not record.git_tag or not git_repos:
+        return None
+    for repo in git_repos:
+        if not repo.is_cloned:
+            continue
+        tags = repo.list_skill_tags()
+        tag_set = {f"{t}/{n}@{v}" for t, n, v in tags}
+        if record.git_tag in tag_set:
+            return repo
+    # Fallback: return first repo (best effort)
+    return git_repos[0] if git_repos else None
 
 
 # ---------------------------------------------------------------------------
@@ -86,8 +111,8 @@ def _fetch_if_requested(git_repo: GitRepo | None, fetch: bool) -> None:
 
 def cmd_install(args: argparse.Namespace) -> int:
     """Install a skill into the global or local scope."""
-    git_repo = _get_git_repo(args.project_dir)
-    _fetch_if_requested(git_repo, getattr(args, "fetch", False))
+    git_repos = _get_git_repos(args.project_dir)
+    _fetch_if_requested(git_repos, getattr(args, "fetch", False))
 
     # Parse "name:version" or "name"
     spec = args.spec
@@ -96,8 +121,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     else:
         name, version_constraint = spec, "latest"
 
-    repo_records = _get_repo_records(git_repo)
-    artifact_type = args.type or _guess_type(name, git_repo, repo_records)
+    repo_records = _get_repo_records(git_repos)
     req = VersionRequirement(name=name, constraint=version_constraint)
 
     global_dir = get_global_dir()
@@ -110,7 +134,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     if record is None:
         print(red(f"✗ Skill not found: {name}@{version_constraint}"))
         _suggest_similar(name, repo_records)
-        if git_repo is not None and not getattr(args, "fetch", False):
+        if git_repos and not getattr(args, "fetch", False):
             print(dim("  Tip: run with --fetch to refresh the tag index from the remote."))
         return 1
 
@@ -126,6 +150,7 @@ def cmd_install(args: argparse.Namespace) -> int:
         target_dir = get_local_dir(project_dir)
         registry = Registry(get_local_registry(project_dir))
 
+    git_repo = _find_git_repo_for_record(record, git_repos)
     dest = install(record, target_dir, registry, overwrite=not args.no_overwrite, git_repo=git_repo)
     v = record.version.raw if record.version else "unknown"
     print(green(f"✓ Installed {record.name}@{v} [{scope_label}] → {dest}"))
@@ -138,10 +163,10 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     """List all known skills with their installed and available versions."""
-    git_repo = _get_git_repo(args.project_dir)
-    _fetch_if_requested(git_repo, getattr(args, "fetch", False))
+    git_repos = _get_git_repos(args.project_dir)
+    _fetch_if_requested(git_repos, getattr(args, "fetch", False))
 
-    repo_records = _get_repo_records(git_repo)
+    repo_records = _get_repo_records(git_repos)
     global_dir = get_global_dir()
     global_records = scan_installed(global_dir) if global_dir.exists() else []
     local_dir = get_local_dir(args.project_dir)
@@ -176,13 +201,13 @@ def _list_table(
     print("-" * (col_w + 42))
 
     for name in names:
-        local_v  = _best_version_str(name, local_records)
+        local_v = _best_version_str(name, local_records)
         global_v = _best_version_str(name, global_records)
         latest_v = _best_version_str(name, repo_records, stable_only=True)
 
-        local_d  = green(local_v)  if local_v  != "—" else dim("—")
+        local_d = green(local_v) if local_v != "—" else dim("—")
         global_d = yellow(global_v) if global_v != "—" else dim("—")
-        latest_d = bold(latest_v)  if latest_v != "—" else dim("—")
+        latest_d = bold(latest_v) if latest_v != "—" else dim("—")
 
         print(f"{name:<{col_w}}  {local_d:<21}  {global_d:<21}  {latest_d}")
 
@@ -199,7 +224,7 @@ def _list_json(
     out = {}
     for name in names:
         out[name] = {
-            "local":  _best_version_str(name, local_records),
+            "local": _best_version_str(name, local_records),
             "global": _best_version_str(name, global_records),
             "latest": _best_version_str(name, repo_records, stable_only=True),
         }
@@ -234,16 +259,16 @@ def cmd_sync(args: argparse.Namespace) -> int:
         print(dim("  Add a '## Skills Requirements' section with a YAML block."))
         return 0
 
-    git_repo = _get_git_repo(project_dir)
-    _fetch_if_requested(git_repo, getattr(args, "fetch", False))
+    git_repos = _get_git_repos(project_dir)
+    _fetch_if_requested(git_repos, getattr(args, "fetch", False))
 
-    repo_records   = _get_repo_records(git_repo)
-    global_dir     = get_global_dir()
+    repo_records = _get_repo_records(git_repos)
+    global_dir = get_global_dir()
     global_records = scan_installed(global_dir) if global_dir.exists() else []
 
     ensure_local_dir(project_dir)
-    local_dir      = get_local_dir(project_dir)
-    local_records  = scan_installed(local_dir) if local_dir.exists() else []
+    local_dir = get_local_dir(project_dir)
+    local_records = scan_installed(local_dir) if local_dir.exists() else []
     local_registry = Registry(get_local_registry(project_dir))
 
     resolved = resolve_all(requirements, repo_records, global_records, local_records)
@@ -255,7 +280,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         record = resolved.get(req.name)
         if record is None:
             print(red(f"✗ {req.name}: not found (constraint: {req.constraint})"))
-            if git_repo is not None and not getattr(args, "fetch", False):
+            if git_repos and not getattr(args, "fetch", False):
                 print(dim("    Tip: run with --fetch to refresh the tag index from the remote."))
             errors += 1
             continue
@@ -272,6 +297,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
             print(f"  {req.name}@{v} — would install (dry-run)")
             continue
 
+        git_repo = _find_git_repo_for_record(record, git_repos)
         dest = install(record, local_dir, local_registry, overwrite=True, git_repo=git_repo)
         print(green(f"✓ {req.name}@{v} → {dest}"))
         installed_count += 1
@@ -296,12 +322,12 @@ def cmd_remove(args: argparse.Namespace) -> int:
 
     if args.global_:
         scope_label = "global"
-        target_dir  = get_global_dir()
-        registry    = Registry(get_global_registry())
+        target_dir = get_global_dir()
+        registry = Registry(get_global_registry())
     else:
         scope_label = "local"
-        target_dir  = get_local_dir(args.project_dir)
-        registry    = Registry(get_local_registry(args.project_dir))
+        target_dir = get_local_dir(args.project_dir)
+        registry = Registry(get_local_registry(args.project_dir))
 
     removed = uninstall(artifact_type, name, target_dir, registry)
     if removed:
@@ -338,11 +364,11 @@ def cmd_env(args: argparse.Namespace) -> int:
     """Show or validate environment configuration."""
     import os
     from .config import get_agent
+    from .settings import get_settings_path
 
-    agent       = get_agent()
-    repo_raw    = os.environ.get("AI_SKILLS_REPO_PATH", "")
-    scripts_raw = os.environ.get("AI_SKILLS_SCRIPTS_PATH", "")
-    repo_url    = get_repo_url()
+    agent = get_agent()
+    repo_raw = os.environ.get("AI_SKILLS_REPO_PATH", "")
+    all_urls = get_repo_urls()
 
     print()
     print(bold("AI Agent"))
@@ -353,18 +379,24 @@ def cmd_env(args: argparse.Namespace) -> int:
     print(f"  {'config_file':<30} {cfg['config_file']}")
 
     print()
-    print(bold("Skills Repository"))
+    print(bold("Global Settings"))
     print("-" * 40)
-    if repo_url:
-        git_repo = GitRepo(repo_url)
-        status = green("✓ cloned") if git_repo.is_cloned else yellow("not yet cloned")
-        print(f"  {'url':<30} {repo_url}")
-        print(f"  {'cache':<30} {git_repo.cache_dir}  [{status}]")
-        if git_repo.is_cloned:
-            tags = git_repo.list_skill_tags()
-            print(f"  {'tagged versions':<30} {len(tags)}")
+    print(f"  {'settings file':<30} {get_settings_path()}")
+
+    print()
+    print(bold("Skills Repositories"))
+    print("-" * 40)
+    if all_urls:
+        for i, url in enumerate(all_urls, 1):
+            git_repo = GitRepo(url)
+            status = green("✓ cloned") if git_repo.is_cloned else yellow("not yet cloned")
+            print(f"  [{i}] {url}")
+            print(f"      {'cache':<26} {git_repo.cache_dir}  [{status}]")
+            if git_repo.is_cloned:
+                tags = git_repo.list_skill_tags()
+                print(f"      {'tagged versions':<26} {len(tags)}")
     else:
-        print(f"  {'url':<30} {yellow('(not configured — run aom init)')}")
+        print(f"  {yellow('(not configured — run aom init)')}")
 
     if repo_raw:
         p = Path(repo_raw)
@@ -379,7 +411,7 @@ def cmd_env(args: argparse.Namespace) -> int:
     print()
 
     if args.check:
-        if not repo_url and (not repo_raw or not Path(repo_raw).is_dir()):
+        if not all_urls and (not repo_raw or not Path(repo_raw).is_dir()):
             print(red("✗ No repository configured. Run 'aom init' to set up."))
             return 1
     return 0
@@ -400,7 +432,9 @@ _KNOWN_AGENT_FILES = {
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    """Interactive project initialization: detect agent, save repository URL."""
+    """Interactive project initialization: detect agent, save repository URL(s)."""
+    from .settings import get_settings_path
+
     project_dir = (args.project_dir or Path.cwd()).resolve()
 
     print()
@@ -458,51 +492,62 @@ def cmd_init(args: argparse.Namespace) -> int:
     print(f"  Config file: {config_path}")
     print()
 
-    # ---- Step 2: show / update repository URL ----
-    existing_url = parse_repo_url(config_path)
-    if existing_url:
-        print(f"  Current repository URL: {existing_url}")
-        ans = input("  Change it? [y/N]: ").strip().lower()
-        if ans != "y":
-            print(green("✓ Already initialized."))
-            return 0
+    # ---- Step 2: configure repository URLs (global settings) ----
+    saved_urls = get_global_repo_urls()
 
-    print("Enter the SSH (or HTTPS) URL of your skills repository.")
-    print("  Examples:")
-    print("    git@gitlab.com:myorg/ai-grimoire.git")
-    print("    git@github.com:myuser/ai-grimoire.git")
-    print("    https://github.com/myuser/ai-grimoire.git")
-    print()
-    while True:
-        url = input("  Repository URL: ").strip()
-        if url:
-            break
-        print("  URL cannot be empty.", file=sys.stderr)
+    if saved_urls:
+        # Repositories already configured globally — show them and offer to change
+        print(bold("Configured repositories:"))
+        for i, u in enumerate(saved_urls, 1):
+            print(f"  [{i}] {u}")
+        print()
+        ans = input("  Change repositories? [y/N]: ").strip().lower()
+        if ans == "y":
+            urls = _prompt_repo_urls()
+            set_global_repo_urls(urls)
+            saved_urls = urls
+            print(green(f"✓ Saved {len(urls)} repository URL(s) to {get_settings_path()}"))
+            print()
+        else:
+            print(dim("  Using existing repository configuration."))
+            print()
+    else:
+        # First time — prompt for repositories
+        print("No repositories configured yet.")
+        print()
+        urls = _prompt_repo_urls()
+        set_global_repo_urls(urls)
+        saved_urls = urls
+        print()
+        print(green(f"✓ Saved {len(urls)} repository URL(s) to {get_settings_path()}"))
+        print()
 
-    if not any(url.startswith(p) for p in ("git@", "ssh://", "https://", "http://")):
-        print(yellow(f"  Warning: URL doesn't look like a standard git remote: {url}"))
-        ans = input("  Continue anyway? [y/N]: ").strip().lower()
-        if ans != "y":
-            return 1
+    # ---- Step 3: write primary URL to project config (backward compat) ----
+    if saved_urls:
+        primary_url = saved_urls[0]
+        existing_url = parse_repo_url(config_path)
+        if existing_url != primary_url:
+            write_repo_url(config_path, primary_url)
+            print(green(f"✓ Primary repository URL saved to {config_path.name}"))
+            print()
 
-    # ---- Step 3: write URL to config file ----
-    write_repo_url(config_path, url)
-    print()
-    print(green(f"✓ Saved to {config_path.name}"))
-    print()
-
-    # ---- Step 4: offer to fetch the tag index ----
-    ans = input("  Fetch skill index from repository now? [Y/n]: ").strip().lower()
-    if ans != "n":
-        try:
-            repo = GitRepo(url)
-            repo.fetch(verbose=True)
-            tags = repo.list_skill_tags()
-            print(green(f"✓ Fetched. {len(tags)} skill version(s) available."))
-        except RuntimeError as exc:
-            print(red(f"✗ Fetch failed: {exc}"))
-            print(yellow("  Check your SSH key and URL, then run 'aom list --fetch'."))
-            return 1
+    # ---- Step 4: offer to fetch the tag index from all repos ----
+    if saved_urls:
+        ans = input("  Fetch skill index from repositories now? [Y/n]: ").strip().lower()
+        if ans != "n":
+            total_tags = 0
+            for url in saved_urls:
+                try:
+                    repo = GitRepo(url)
+                    repo.fetch(verbose=True)
+                    tags = repo.list_skill_tags()
+                    total_tags += len(tags)
+                    print(green(f"  ✓ {url} — {len(tags)} skill version(s)"))
+                except RuntimeError as exc:
+                    print(red(f"  ✗ {url}: {exc}"))
+                    print(yellow("    Check your SSH key and URL, then run 'aom list --fetch'."))
+            print()
+            print(green(f"✓ Fetched. {total_tags} total skill version(s) available."))
 
     print()
     print(bold("Next steps:"))
@@ -511,6 +556,38 @@ def cmd_init(args: argparse.Namespace) -> int:
     print("  aom sync            — install all required skills from config")
     print()
     return 0
+
+
+def _prompt_repo_urls() -> list[str]:
+    """Interactively prompt the user for one or more repository URLs."""
+    print("Enter the SSH (or HTTPS) URLs of your skill repositories.")
+    print("  Separate multiple URLs with commas.")
+    print("  Examples:")
+    print("    git@gitlab.com:myorg/ai-grimoire.git")
+    print("    git@github.com:myuser/skills.git, git@github.com:myuser/more-skills.git")
+    print()
+    while True:
+        raw = input("  Repository URL(s): ").strip()
+        if not raw:
+            print("  At least one URL is required.", file=sys.stderr)
+            continue
+
+        urls = [u.strip() for u in raw.split(",") if u.strip()]
+        if not urls:
+            print("  At least one URL is required.", file=sys.stderr)
+            continue
+
+        # Validate each URL
+        valid = True
+        for url in urls:
+            if not any(url.startswith(p) for p in ("git@", "ssh://", "https://", "http://")):
+                print(yellow(f"  Warning: URL doesn't look like a standard git remote: {url}"))
+                ans = input("  Continue anyway? [y/N]: ").strip().lower()
+                if ans != "y":
+                    valid = False
+                    break
+        if valid:
+            return urls
 
 
 # ---------------------------------------------------------------------------
@@ -528,14 +605,22 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     def _add_scope_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument("--global", dest="global_", action="store_true", help="Operate on global scope (~/.claude)")
-        p.add_argument("--local",  dest="local_",  action="store_true", help="Operate on local project scope (default)")
-        p.add_argument("--project-dir", metavar="DIR", type=Path, default=None, help="Project directory (default: cwd)")
+        p.add_argument(
+            "--global", dest="global_", action="store_true",
+            help="Operate on global scope (~/.claude)")
+        p.add_argument(
+            "--local", dest="local_", action="store_true",
+            help="Operate on local project scope (default)")
+        p.add_argument(
+            "--project-dir", metavar="DIR", type=Path, default=None,
+            help="Project directory (default: cwd)")
         p.add_argument("--type", choices=ARTIFACT_TYPES, help="Artifact type filter")
 
     # init
     p_init = sub.add_parser("init", help="Initialize a project: set agent and repository URL")
-    p_init.add_argument("--project-dir", metavar="DIR", type=Path, default=None, help="Project directory (default: cwd)")
+    p_init.add_argument(
+        "--project-dir", metavar="DIR", type=Path, default=None,
+        help="Project directory (default: cwd)")
 
     # install
     p_install = sub.add_parser("install", help="Install a skill")
@@ -547,13 +632,19 @@ def build_parser() -> argparse.ArgumentParser:
     # list
     p_list = sub.add_parser("list", help="List all skills")
     p_list.add_argument("--json", action="store_true", help="Output as JSON")
-    p_list.add_argument("--fetch", action="store_true", help="Fetch latest tags from remote before listing")
-    p_list.add_argument("--project-dir", metavar="DIR", type=Path, default=None, help="Project directory (default: cwd)")
+    p_list.add_argument(
+        "--fetch", action="store_true",
+        help="Fetch latest tags from remote before listing")
+    p_list.add_argument(
+        "--project-dir", metavar="DIR", type=Path, default=None,
+        help="Project directory (default: cwd)")
     p_list.add_argument("--type", choices=ARTIFACT_TYPES, help="Filter by artifact type")
 
     # sync
     p_sync = sub.add_parser("sync", help="Sync skills from the agent's project config file")
-    p_sync.add_argument("--project-dir", metavar="DIR", type=Path, default=None, help="Project directory (default: cwd)")
+    p_sync.add_argument(
+        "--project-dir", metavar="DIR", type=Path, default=None,
+        help="Project directory (default: cwd)")
     p_sync.add_argument("--dry-run", action="store_true", help="Show what would be installed without doing it")
     p_sync.add_argument("--force", action="store_true", help="Re-install even if already installed")
     p_sync.add_argument("--fetch", action="store_true", help="Fetch latest tags from remote before syncing")
@@ -620,7 +711,7 @@ def main(argv: list[str] | None = None) -> int:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _guess_type(name: str, git_repo: GitRepo | None, repo_records: list) -> str:
+def _guess_type(name: str, git_repos: list[GitRepo], repo_records: list) -> str:
     """
     Heuristically determine artifact type for *name*.
 
@@ -632,7 +723,7 @@ def _guess_type(name: str, git_repo: GitRepo | None, repo_records: list) -> str:
         if r.name.lower() == name_lower or r.name.lower().endswith("/" + name_lower):
             return r.artifact_type
 
-    if git_repo is None:
+    if not git_repos:
         # Filesystem fallback for local repos
         try:
             repo_path = get_repo_path()
