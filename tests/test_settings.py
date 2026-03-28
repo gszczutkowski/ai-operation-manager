@@ -16,6 +16,8 @@ from aom.settings import (
     set_local_paths,
     add_local_path,
     remove_local_path,
+    get_fetch_ttl,
+    set_fetch_ttl,
     _load_raw,
     _save_raw,
 )
@@ -213,3 +215,22 @@ class TestLocalPaths:
         set_local_paths(["/some/path"])
         assert get_repo_urls() == ["git@github.com:a/b.git"]
         assert get_local_paths() == ["/some/path"]
+
+
+# ===================================================================
+# Fetch TTL management
+# ===================================================================
+
+class TestFetchTtl:
+    def test_default_ttl(self):
+        assert get_fetch_ttl() == 3600
+
+    def test_set_and_get(self):
+        set_fetch_ttl(1800)
+        assert get_fetch_ttl() == 1800
+
+    def test_persists_with_other_settings(self):
+        set_repo_urls(["git@github.com:a/b.git"])
+        set_fetch_ttl(600)
+        assert get_repo_urls() == ["git@github.com:a/b.git"]
+        assert get_fetch_ttl() == 600

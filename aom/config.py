@@ -34,7 +34,7 @@ AGENT_MAP: dict[str, AgentConfig] = {
         "dir_name":    ".claude",        # ~/.claude  /  <project>/.claude
         "config_file": "CLAUDE.md",      # project requirements live here
         "type_dirs": {                   # grimoire type  →  agent subdir
-            "skills":   "commands",
+            "skills":   "skills",
             "commands": "commands",
             "agents":   "agents",
             "hooks":    "hooks",
@@ -164,7 +164,7 @@ def get_type_subdir(artifact_type: str) -> str:
     """
     Map a grimoire artifact type to the agent-specific subdirectory name.
 
-    Example (ClaudeCode): "skills" → "commands", "agents" → "agents"
+    Example (ClaudeCode): "skills" → "skills", "agents" → "agents"
     """
     type_dirs = AGENT_MAP[get_agent()].get("type_dirs", {})
     return type_dirs.get(artifact_type, artifact_type)

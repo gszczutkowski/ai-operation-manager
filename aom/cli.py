@@ -2,6 +2,7 @@
 aom — CLI version management for AI skills.
 
 Usage:
+  aom fetch   [--project-dir DIR]
   aom install <name>[:<version>] [--global | --local] [--type TYPE]
   aom list    [--type TYPE] [--json]
   aom sync    [--project-dir DIR] [--dry-run]
@@ -43,6 +44,7 @@ from .settings import (
     set_repo_urls as set_global_repo_urls,
     get_local_paths as get_global_local_paths,
     set_local_paths as set_global_local_paths,
+    get_fetch_ttl,
 )
 
 
@@ -87,12 +89,23 @@ def _get_repo_records(git_repos: list[GitRepo]) -> list:
     return records
 
 
-def _fetch_if_requested(git_repos: list[GitRepo], fetch: bool) -> None:
+def _fetch_if_requested(git_repos: list[GitRepo], fetch: bool, no_fetch: bool = False) -> None:
+    """Refresh git repos based on flags and TTL.
+
+    Priority:
+      --fetch     → always fetch (force refresh)
+      --no-fetch  → never fetch (offline mode), only clone if needed
+      (default)   → auto-fetch if stale (TTL-based)
+    """
+    ttl = get_fetch_ttl()
     for repo in git_repos:
         if fetch:
             repo.fetch(verbose=True)
-        elif not repo.is_cloned:
-            repo.ensure_cloned(verbose=True)
+        elif no_fetch:
+            if not repo.is_cloned:
+                repo.ensure_cloned(verbose=True)
+        else:
+            repo.fetch_if_stale(ttl_seconds=ttl, verbose=True)
 
 
 def _find_git_repo_for_record(record: SkillRecord, git_repos: list[GitRepo]) -> GitRepo | None:
@@ -111,13 +124,45 @@ def _find_git_repo_for_record(record: SkillRecord, git_repos: list[GitRepo]) -> 
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: fetch
+# ---------------------------------------------------------------------------
+
+def cmd_fetch(args: argparse.Namespace) -> int:
+    """Fetch latest tags from all configured remote repositories."""
+    git_repos = _get_git_repos(getattr(args, "project_dir", None))
+
+    if not git_repos:
+        print(yellow("No repositories configured. Run 'aom init' to set up."))
+        return 1
+
+    total_tags = 0
+    errors = 0
+    for repo in git_repos:
+        try:
+            repo.fetch(verbose=True)
+            tags = repo.list_skill_tags()
+            total_tags += len(tags)
+            print(green(f"  ✓ {repo.url} — {len(tags)} skill version(s)"))
+        except RuntimeError as exc:
+            print(red(f"  ✗ {repo.url}: {exc}"))
+            errors += 1
+
+    print()
+    if errors:
+        print(yellow(f"Fetched with {errors} error(s). {total_tags} skill version(s) available."))
+        return 1
+    print(green(f"✓ All repositories up to date. {total_tags} skill version(s) available."))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Subcommand: install
 # ---------------------------------------------------------------------------
 
 def cmd_install(args: argparse.Namespace) -> int:
     """Install a skill into the global or local scope."""
     git_repos = _get_git_repos(args.project_dir)
-    _fetch_if_requested(git_repos, getattr(args, "fetch", False))
+    _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
 
     # Parse "name:version" or "name"
     spec = args.spec
@@ -169,7 +214,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 def cmd_list(args: argparse.Namespace) -> int:
     """List all known skills with their installed and available versions."""
     git_repos = _get_git_repos(args.project_dir)
-    _fetch_if_requested(git_repos, getattr(args, "fetch", False))
+    _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
 
     repo_records = _get_repo_records(git_repos)
     global_dir = get_global_dir()
@@ -265,7 +310,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         return 0
 
     git_repos = _get_git_repos(project_dir)
-    _fetch_if_requested(git_repos, getattr(args, "fetch", False))
+    _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
 
     repo_records = _get_repo_records(git_repos)
     global_dir = get_global_dir()
@@ -357,6 +402,7 @@ def cmd_update(args: argparse.Namespace) -> int:
         project_dir=getattr(args, "project_dir", None),
         type=getattr(args, "type", None),
         fetch=getattr(args, "fetch", False),
+        no_fetch=getattr(args, "no_fetch", False),
     )
     return cmd_install(install_args)
 
@@ -367,12 +413,15 @@ def cmd_update(args: argparse.Namespace) -> int:
 
 def cmd_env(args: argparse.Namespace) -> int:
     """Show or validate environment configuration."""
+    import time as _time
+    from datetime import datetime, timezone
     from .config import get_agent
     from .settings import get_settings_path
 
     agent = get_agent()
     all_urls = get_repo_urls()
     local_paths = get_local_paths()
+    ttl = get_fetch_ttl()
 
     print()
     print(bold("AI Agent"))
@@ -386,6 +435,7 @@ def cmd_env(args: argparse.Namespace) -> int:
     print(bold("Global Settings"))
     print("-" * 40)
     print(f"  {'settings file':<30} {get_settings_path()}")
+    print(f"  {'fetch_ttl_seconds':<30} {ttl}")
 
     print()
     print(bold("Skills Repositories (remote)"))
@@ -399,6 +449,16 @@ def cmd_env(args: argparse.Namespace) -> int:
             if git_repo.is_cloned:
                 tags = git_repo.list_skill_tags()
                 print(f"      {'tagged versions':<26} {len(tags)}")
+                last = git_repo._load_last_fetched()
+                if last is not None:
+                    dt = datetime.fromtimestamp(last, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+                    age = int(_time.time() - last)
+                    stale = age > ttl
+                    age_label = f"{age}s ago" if age < 120 else f"{age // 60}m ago"
+                    freshness = red("stale") if stale else green("fresh")
+                    print(f"      {'last fetched':<26} {dt}  ({age_label}, {freshness})")
+                else:
+                    print(f"      {'last fetched':<26} {yellow('unknown')}")
     else:
         print(f"  {yellow('(not configured — run aom init)')}")
 
@@ -718,11 +778,18 @@ def build_parser() -> argparse.ArgumentParser:
         "--project-dir", metavar="DIR", type=Path, default=None,
         help="Project directory (default: cwd)")
 
+    # fetch
+    p_fetch = sub.add_parser("fetch", help="Fetch latest tags from all configured repositories")
+    p_fetch.add_argument(
+        "--project-dir", metavar="DIR", type=Path, default=None,
+        help="Project directory (default: cwd)")
+
     # install
     p_install = sub.add_parser("install", help="Install a skill")
     p_install.add_argument("spec", metavar="NAME[:VERSION]", help="Skill name and optional version constraint")
     p_install.add_argument("--no-overwrite", action="store_true", help="Skip if already installed")
-    p_install.add_argument("--fetch", action="store_true", help="Fetch latest tags from remote before installing")
+    p_install.add_argument("--fetch", action="store_true", help="Force fetch latest tags from remote")
+    p_install.add_argument("--no-fetch", action="store_true", help="Skip auto-fetch (offline mode)")
     _add_scope_args(p_install)
 
     # list
@@ -730,7 +797,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument("--json", action="store_true", help="Output as JSON")
     p_list.add_argument(
         "--fetch", action="store_true",
-        help="Fetch latest tags from remote before listing")
+        help="Force fetch latest tags from remote")
+    p_list.add_argument("--no-fetch", action="store_true", help="Skip auto-fetch (offline mode)")
     p_list.add_argument(
         "--project-dir", metavar="DIR", type=Path, default=None,
         help="Project directory (default: cwd)")
@@ -743,7 +811,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Project directory (default: cwd)")
     p_sync.add_argument("--dry-run", action="store_true", help="Show what would be installed without doing it")
     p_sync.add_argument("--force", action="store_true", help="Re-install even if already installed")
-    p_sync.add_argument("--fetch", action="store_true", help="Fetch latest tags from remote before syncing")
+    p_sync.add_argument("--fetch", action="store_true", help="Force fetch latest tags from remote")
+    p_sync.add_argument("--no-fetch", action="store_true", help="Skip auto-fetch (offline mode)")
 
     # remove
     p_remove = sub.add_parser("remove", help="Remove an installed skill")
@@ -753,7 +822,8 @@ def build_parser() -> argparse.ArgumentParser:
     # update
     p_update = sub.add_parser("update", help="Update a skill to its latest version")
     p_update.add_argument("name", metavar="NAME")
-    p_update.add_argument("--fetch", action="store_true", help="Fetch latest tags from remote before updating")
+    p_update.add_argument("--fetch", action="store_true", help="Force fetch latest tags from remote")
+    p_update.add_argument("--no-fetch", action="store_true", help="Skip auto-fetch (offline mode)")
     _add_scope_args(p_update)
 
     # env
@@ -782,6 +852,7 @@ def main(argv: list[str] | None = None) -> int:
 
     dispatch = {
         "init":    cmd_init,
+        "fetch":   cmd_fetch,
         "install": cmd_install,
         "list":    cmd_list,
         "sync":    cmd_sync,

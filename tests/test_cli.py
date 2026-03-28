@@ -90,6 +90,31 @@ class TestBuildParser:
         args = parser.parse_args(["install", "x", "--fetch"])
         assert args.fetch is True
 
+    def test_no_fetch_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["install", "x", "--no-fetch"])
+        assert args.no_fetch is True
+
+    def test_fetch_command(self):
+        parser = build_parser()
+        args = parser.parse_args(["fetch"])
+        assert args.command == "fetch"
+
+    def test_list_no_fetch(self):
+        parser = build_parser()
+        args = parser.parse_args(["list", "--no-fetch"])
+        assert args.no_fetch is True
+
+    def test_sync_no_fetch(self):
+        parser = build_parser()
+        args = parser.parse_args(["sync", "--no-fetch"])
+        assert args.no_fetch is True
+
+    def test_update_no_fetch(self):
+        parser = build_parser()
+        args = parser.parse_args(["update", "x", "--no-fetch"])
+        assert args.no_fetch is True
+
     def test_debug_flag(self):
         parser = build_parser()
         args = parser.parse_args(["--debug", "list"])

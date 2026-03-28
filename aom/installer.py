@@ -112,7 +112,7 @@ def uninstall(
     Returns True if anything was removed.
     """
     full_name = f"{artifact_type}/{name}"
-    # Resolve the agent-specific subdir (e.g. "skills" → "commands" for ClaudeCode)
+    # Resolve the agent-specific subdir (e.g. "skills" → "skills" for ClaudeCode)
     type_dir = install_dir / get_type_subdir(artifact_type)
 
     removed = False
@@ -146,7 +146,7 @@ def _destination(record: SkillRecord, install_dir: Path) -> Path:
     """Compute the destination path for *record* inside *install_dir*.
 
     The subdirectory name is agent-specific (e.g. ClaudeCode maps
-    "skills" → "commands", so a skill lands in install_dir/commands/).
+    "skills" → "skills", so a skill lands in install_dir/skills/).
     """
     if record.path is None:
         raise RuntimeError(

@@ -88,7 +88,7 @@ class TestPathFunctions:
     def test_get_type_subdir_skills(self, monkeypatch):
         import aom.config as cfg
         monkeypatch.setattr(cfg, "_AGENT_CACHE", "ClaudeCode")
-        assert get_type_subdir("skills") == "commands"
+        assert get_type_subdir("skills") == "skills"
 
     def test_get_type_subdir_agents(self, monkeypatch):
         import aom.config as cfg

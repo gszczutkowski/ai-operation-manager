@@ -168,3 +168,23 @@ def remove_local_path(path: str) -> bool:
         return False
     set_local_paths(new_paths)
     return True
+
+
+# ---------------------------------------------------------------------------
+# Fetch TTL management
+# ---------------------------------------------------------------------------
+
+_DEFAULT_FETCH_TTL = 3600  # 1 hour
+
+
+def get_fetch_ttl() -> int:
+    """Return the configured fetch TTL in seconds (default: 3600)."""
+    data = _load_raw()
+    return int(data.get("fetch_ttl_seconds", _DEFAULT_FETCH_TTL))
+
+
+def set_fetch_ttl(seconds: int) -> None:
+    """Set the fetch TTL in seconds."""
+    data = _load_raw()
+    data["fetch_ttl_seconds"] = seconds
+    _save_raw(data)
