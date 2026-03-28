@@ -1,16 +1,23 @@
 """
-aom — CLI version management for AI skills.
+aom — AI Operation Manager
 
-Usage:
-  aom fetch   [--project-dir DIR]
-  aom install <name>[:<version>] [--global | --local] [--type TYPE]
-  aom list    [--type TYPE] [--json]
-  aom sync    [--project-dir DIR] [--dry-run]
-  aom remove  <name> [--global | --local] [--type TYPE]
-  aom update  <name> [--global | --local] [--type TYPE]
-  aom env     [--check]
+Manage versioned AI operations across projects, using git tags as a
+lightweight package registry.
 
-Run `aom <command> --help` for details.
+An "operation" is any versioned markdown artifact managed by aom.
+Operation types include: skills, commands, agents, and hooks.
+
+Commands:
+  init      Set up a project: detect agent, configure repositories
+  fetch     Refresh the operation index from all remote repositories
+  install   Install an operation into the local or global scope
+  list      Show available and installed operations with version info
+  sync      Install all required operations declared in the project config
+  remove    Uninstall an operation from the local or global scope
+  update    Upgrade an operation to the latest available version
+  env       Display environment configuration and diagnostics
+
+Run `aom <command> --help` for command-specific options and examples.
 """
 from __future__ import annotations
 
@@ -748,87 +755,238 @@ def _prompt_local_paths() -> list[str]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="aom",
-        description="AI Operation Manager",
+        description=(
+            "AI Operation Manager — manage versioned AI operations across projects\n"
+            "using git tags as a lightweight package registry.\n\n"
+            "An \"operation\" is any versioned markdown artifact managed by aom.\n"
+            "Operation types include: skills, commands, agents, and hooks."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__,
     )
     from . import __version__
     parser.add_argument(
         "-v", "--version", action="version",
         version=f"%(prog)s {__version__}",
     )
-    parser.add_argument("--debug", action="store_true", help="Show full traceback on errors")
+    parser.add_argument(
+        "--debug", action="store_true",
+        help="Print the full Python traceback when an error occurs",
+    )
     sub = parser.add_subparsers(dest="command", metavar="COMMAND")
 
     def _add_scope_args(p: argparse.ArgumentParser) -> None:
-        p.add_argument(
+        scope = p.add_mutually_exclusive_group()
+        scope.add_argument(
             "--global", dest="global_", action="store_true",
-            help="Operate on global scope (~/.claude)")
-        p.add_argument(
+            help="Target the global scope (~/.claude), shared across all projects",
+        )
+        scope.add_argument(
             "--local", dest="local_", action="store_true",
-            help="Operate on local project scope (default)")
+            help="Target the local project scope (<project>/.claude) [default]",
+        )
         p.add_argument(
             "--project-dir", metavar="DIR", type=Path, default=None,
-            help="Project directory (default: cwd)")
-        p.add_argument("--type", choices=ARTIFACT_TYPES, help="Artifact type filter")
+            help=(
+                "Path to the project root directory used to locate the local scope "
+                "and config file (default: current working directory)"
+            ),
+        )
+        p.add_argument(
+            "--type", choices=ARTIFACT_TYPES, metavar="TYPE",
+            help=(
+                "Filter by artifact type: %(choices)s "
+                "(default: all types)"
+            ),
+        )
 
-    # init
-    p_init = sub.add_parser("init", help="Initialize a project: set agent and repository URL")
+    def _add_fetch_args(p: argparse.ArgumentParser) -> None:
+        fetch_group = p.add_mutually_exclusive_group()
+        fetch_group.add_argument(
+            "--fetch", action="store_true",
+            help="Force a fresh fetch of tags from all remote repositories, ignoring the TTL cache",
+        )
+        fetch_group.add_argument(
+            "--no-fetch", action="store_true",
+            help="Skip automatic fetching entirely; use only the locally cached tag index (offline mode)",
+        )
+
+    # -- init -----------------------------------------------------------------
+    p_init = sub.add_parser(
+        "init",
+        help="Set up a project: detect AI agent, configure operation repositories",
+        description=(
+            "Interactive project setup wizard.\n\n"
+            "Detects the AI agent in use (e.g. ClaudeCode, Cursor), prompts for\n"
+            "one or more operation repository URLs, and writes the configuration\n"
+            "to the agent's config file and global settings."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_init.add_argument(
         "--project-dir", metavar="DIR", type=Path, default=None,
-        help="Project directory (default: cwd)")
+        help=(
+            "Path to the project root directory to initialize "
+            "(default: current working directory)"
+        ),
+    )
 
-    # fetch
-    p_fetch = sub.add_parser("fetch", help="Fetch latest tags from all configured repositories")
+    # -- fetch ----------------------------------------------------------------
+    p_fetch = sub.add_parser(
+        "fetch",
+        help="Refresh the operation index from all remote repositories",
+        description=(
+            "Fetch the latest git tags from every configured remote repository.\n\n"
+            "This updates the local tag cache so that subsequent install, list,\n"
+            "and sync commands see newly published operation versions. Repositories\n"
+            "are configured via 'aom init' or the global settings file."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_fetch.add_argument(
         "--project-dir", metavar="DIR", type=Path, default=None,
-        help="Project directory (default: cwd)")
+        help=(
+            "Path to the project root directory whose config is used to discover "
+            "repository URLs (default: current working directory)"
+        ),
+    )
 
-    # install
-    p_install = sub.add_parser("install", help="Install a skill")
-    p_install.add_argument("spec", metavar="NAME[:VERSION]", help="Skill name and optional version constraint")
-    p_install.add_argument("--no-overwrite", action="store_true", help="Skip if already installed")
-    p_install.add_argument("--fetch", action="store_true", help="Force fetch latest tags from remote")
-    p_install.add_argument("--no-fetch", action="store_true", help="Skip auto-fetch (offline mode)")
+    # -- install --------------------------------------------------------------
+    p_install = sub.add_parser(
+        "install",
+        help="Install an operation into the local or global scope",
+        description=(
+            "Install an operation by name, with an optional version constraint.\n\n"
+            "The operation is resolved from remote repositories and local paths,\n"
+            "then written to the target scope directory. When no scope flag is\n"
+            "given, the operation is installed into the local project scope.\n\n"
+            "Version constraint formats:\n"
+            "  NAME              Install the latest stable version\n"
+            "  NAME:1.2.0        Install exactly version 1.2.0\n"
+            "  NAME:>=1.0.0      Install the newest version >= 1.0.0\n"
+            "  NAME:latest       Same as omitting the version (latest stable)\n"
+            "  NAME:*            Include pre-release versions"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_install.add_argument(
+        "spec", metavar="NAME[:VERSION]",
+        help="Operation name with an optional version constraint (e.g. create-jira-story:>=1.0.0)",
+    )
+    p_install.add_argument(
+        "--no-overwrite", action="store_true",
+        help="Do not overwrite the operation if it is already installed at any version",
+    )
+    _add_fetch_args(p_install)
     _add_scope_args(p_install)
 
-    # list
-    p_list = sub.add_parser("list", help="List all skills")
-    p_list.add_argument("--json", action="store_true", help="Output as JSON")
+    # -- list -----------------------------------------------------------------
+    p_list = sub.add_parser(
+        "list",
+        help="Show available and installed operations with version info",
+        description=(
+            "Display a table of all known operations with their installed (local\n"
+            "and global) and latest available versions. Use --json for machine-\n"
+            "readable output."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_list.add_argument(
-        "--fetch", action="store_true",
-        help="Force fetch latest tags from remote")
-    p_list.add_argument("--no-fetch", action="store_true", help="Skip auto-fetch (offline mode)")
+        "--json", action="store_true",
+        help="Print the operation list as a JSON object instead of a human-readable table",
+    )
+    _add_fetch_args(p_list)
     p_list.add_argument(
         "--project-dir", metavar="DIR", type=Path, default=None,
-        help="Project directory (default: cwd)")
-    p_list.add_argument("--type", choices=ARTIFACT_TYPES, help="Filter by artifact type")
+        help=(
+            "Path to the project root directory used to locate the local scope "
+            "(default: current working directory)"
+        ),
+    )
+    p_list.add_argument(
+        "--type", choices=ARTIFACT_TYPES, metavar="TYPE",
+        help="Show only artifacts of the given type: %(choices)s",
+    )
 
-    # sync
-    p_sync = sub.add_parser("sync", help="Sync skills from the agent's project config file")
+    # -- sync -----------------------------------------------------------------
+    p_sync = sub.add_parser(
+        "sync",
+        help="Install all required operations declared in the project config",
+        description=(
+            "Read the 'Skills Requirements' section from the agent's project\n"
+            "config file (e.g. CLAUDE.md) and install every listed operation into\n"
+            "the local scope. Operations that are already installed at the required\n"
+            "version are skipped unless --force is given."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     p_sync.add_argument(
         "--project-dir", metavar="DIR", type=Path, default=None,
-        help="Project directory (default: cwd)")
-    p_sync.add_argument("--dry-run", action="store_true", help="Show what would be installed without doing it")
-    p_sync.add_argument("--force", action="store_true", help="Re-install even if already installed")
-    p_sync.add_argument("--fetch", action="store_true", help="Force fetch latest tags from remote")
-    p_sync.add_argument("--no-fetch", action="store_true", help="Skip auto-fetch (offline mode)")
+        help=(
+            "Path to the project root directory containing the config file "
+            "(default: current working directory)"
+        ),
+    )
+    p_sync.add_argument(
+        "--dry-run", action="store_true",
+        help="Show which operations would be installed without writing any files",
+    )
+    p_sync.add_argument(
+        "--force", action="store_true",
+        help="Re-install every required operation even if already installed at the correct version",
+    )
+    _add_fetch_args(p_sync)
 
-    # remove
-    p_remove = sub.add_parser("remove", help="Remove an installed skill")
-    p_remove.add_argument("name", metavar="NAME")
+    # -- remove ---------------------------------------------------------------
+    p_remove = sub.add_parser(
+        "remove",
+        help="Uninstall an operation from the local or global scope",
+        description=(
+            "Remove a previously installed operation and delete its file from the\n"
+            "target scope directory. When no scope flag is given, the operation is\n"
+            "removed from the local project scope."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_remove.add_argument(
+        "name", metavar="NAME",
+        help="Name of the operation to remove (e.g. create-jira-story)",
+    )
     _add_scope_args(p_remove)
 
-    # update
-    p_update = sub.add_parser("update", help="Update a skill to its latest version")
-    p_update.add_argument("name", metavar="NAME")
-    p_update.add_argument("--fetch", action="store_true", help="Force fetch latest tags from remote")
-    p_update.add_argument("--no-fetch", action="store_true", help="Skip auto-fetch (offline mode)")
+    # -- update ---------------------------------------------------------------
+    p_update = sub.add_parser(
+        "update",
+        help="Upgrade an operation to the latest available version",
+        description=(
+            "Replace an installed operation with the latest version available in\n"
+            "the configured repositories. Equivalent to running\n"
+            "'aom install NAME:latest' with overwrite enabled."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_update.add_argument(
+        "name", metavar="NAME",
+        help="Name of the operation to update (e.g. create-jira-story)",
+    )
+    _add_fetch_args(p_update)
     _add_scope_args(p_update)
 
-    # env
-    p_env = sub.add_parser("env", help="Show environment configuration")
-    p_env.add_argument("--check", action="store_true", help="Exit 1 if no repository is configured")
+    # -- env ------------------------------------------------------------------
+    p_env = sub.add_parser(
+        "env",
+        help="Display environment configuration and diagnostics",
+        description=(
+            "Print a summary of the current aom environment: detected AI agent,\n"
+            "configured repositories (remote and local), cache status, fetch\n"
+            "freshness, and install locations. Useful for debugging configuration\n"
+            "issues."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_env.add_argument(
+        "--check", action="store_true",
+        help="Exit with code 1 if no operation repository is configured (useful in CI scripts)",
+    )
 
     return parser
 
