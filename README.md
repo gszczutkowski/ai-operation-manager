@@ -116,7 +116,6 @@ Next steps:
 
 #### 2. Declare requirements in CLAUDE.md
 
-````markdown
 ## Skills Source
 
 ```yaml
@@ -131,7 +130,6 @@ required:
   design-workflow: ">=1.1.0"
   evaluate-workflow: "latest"
 ```
-````
 
 #### 3. Install everything
 
@@ -149,20 +147,13 @@ Any teammate who checks out the project runs the same command — the tool clone
 
 `aom init` writes two sections to the project config file:
 
-**`## Skills Source`** — the remote repository URL:
-
-````markdown
-## Skills Source
+**## `Skills Source`** — the remote repository URL:
 
 ```yaml
 url: "git@gitlab.com:myorg/ai-grimoire.git"
 ```
-````
 
-**`## Skills Requirements`** — pinned versions:
-
-````markdown
-## Skills Requirements
+**## `Skills Requirements`** — pinned versions:
 
 ```yaml
 required:
@@ -171,7 +162,6 @@ required:
   evaluate-workflow: "latest"
   child/generate-handwriting-practice: "*"
 ```
-````
 
 The header is case-insensitive. The parser accepts fenced YAML blocks or 4-space-indented YAML.
 
