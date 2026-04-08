@@ -4,6 +4,10 @@ dynamic = ["version"]
 description = "Zero-dependency CLI for managing versioned AI skills across projects"
 requires-python = ">=3.10"
 readme = "README.md"
+license = {file = "LICENSE"}
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+]
 
 [project.scripts]
 aom = "aom.cli:main"

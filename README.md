@@ -1,5 +1,7 @@
 # aom — AI Operation Manager
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A zero-dependency Python CLI that installs and manages versioned AI skills (slash commands, agents, hooks) across projects. Skills are versioned by **git tag** in a remote repository; each project independently pins the versions it needs.
 
 **Key highlights:**
@@ -27,10 +29,10 @@ A zero-dependency Python CLI that installs and manages versioned AI skills (slas
 
 Download the latest binary for your platform from the [Releases](../../releases) page:
 
-| Platform        | File                     |
-|-----------------|--------------------------|
-| Linux (x86-64)  | `aom-linux-amd64`        |
-| Windows (x86-64)| `aom-windows-amd64.exe`  |
+| Platform         | File                    |
+| ---------------- | ----------------------- |
+| Linux (x86-64)   | `aom-linux-amd64`       |
+| Windows (x86-64) | `aom-windows-amd64.exe` |
 
 ```bash
 # Linux / macOS
@@ -112,7 +114,7 @@ Next steps:
   aom sync              — install all required skills from config
 ```
 
-#### 2. Declare requirements in CLAUDE.md
+#### 2. Declare requirements in project AI config file (e.g. CLAUDE.md)
 
 ````markdown
 ## Skills Source
@@ -149,17 +151,17 @@ Any teammate who checks out the project runs the same command — the tool clone
 
 **`## Skills Source`** — the remote repository URL:
 
-```markdown
+````markdown
 ## Skills Source
 
 ```yaml
 url: "git@gitlab.com:myorg/ai-grimoire.git"
 ```
-```
+````
 
 **`## Skills Requirements`** — pinned versions:
 
-```markdown
+````markdown
 ## Skills Requirements
 
 ```yaml
@@ -169,7 +171,7 @@ required:
   evaluate-workflow: "latest"
   child/generate-handwriting-practice: "*"
 ```
-```
+````
 
 The header is case-insensitive. The parser accepts fenced YAML blocks or 4-space-indented YAML.
 
@@ -177,21 +179,19 @@ The header is case-insensitive. The parser accepts fenced YAML blocks or 4-space
 
 All repository URLs and local paths are stored in the global settings file, managed by `aom init`:
 
-| Platform    | Settings file                        |
-|-------------|--------------------------------------|
-| Linux/macOS | `~/.config/aom/settings.json`        |
-| Windows     | `%APPDATA%\aom\settings.json`        |
+| Platform    | Settings file                 |
+| ----------- | ----------------------------- |
+| Linux/macOS | `~/.config/aom/settings.json` |
+| Windows     | `%APPDATA%\aom\settings.json` |
 
 ```json
 {
   "version": 2,
   "repositories": [
-    {"url": "git@gitlab.com:myorg/ai-grimoire.git"},
-    {"url": "git@github.com:myorg/more-skills.git"}
+    { "url": "git@gitlab.com:myorg/ai-grimoire.git" },
+    { "url": "git@github.com:myorg/more-skills.git" }
   ],
-  "local_paths": [
-    "/home/user/my-local-skills"
-  ]
+  "local_paths": ["/home/user/my-local-skills"]
 }
 ```
 
@@ -202,11 +202,11 @@ No environment variables are needed. The AI agent is auto-detected from config f
 
 ### Version constraints
 
-| Syntax     | Meaning                              |
-|------------|--------------------------------------|
-| `1.0.0`    | Exact version                        |
-| `>=1.2.0`  | Minimum version (highest satisfying) |
-| `latest` or `*` | Highest stable version          |
+| Syntax          | Meaning                              |
+| --------------- | ------------------------------------ |
+| `1.0.0`         | Exact version                        |
+| `>=1.2.0`       | Minimum version (highest satisfying) |
+| `latest` or `*` | Highest stable version               |
 
 ---
 
@@ -214,22 +214,23 @@ No environment variables are needed. The AI agent is auto-detected from config f
 
 ### Commands overview
 
-| Command                       | Description                                      |
-|-------------------------------|--------------------------------------------------|
-| `aom init`                    | Interactive setup: detect agent, save repo URL   |
-| `aom install NAME[:VERSION]`  | Install a skill (local scope by default)         |
-| `aom list`                    | Show available and installed versions             |
-| `aom sync`                    | Install all requirements from the config file     |
-| `aom update NAME`             | Update a skill to the latest stable version       |
-| `aom view NAME versions`      | List all available versions of an operation        |
-| `aom remove NAME`             | Remove an installed skill                         |
-| `aom env`                     | Show repository and environment configuration     |
+| Command                      | Description                                    |
+| ---------------------------- | ---------------------------------------------- |
+| `aom init`                   | Interactive setup: detect agent, save repo URL |
+| `aom install NAME[:VERSION]` | Install a skill (local scope by default)       |
+| `aom list`                   | Show available and installed versions          |
+| `aom sync`                   | Install all requirements from the config file  |
+| `aom update NAME`            | Update a skill to the latest stable version    |
+| `aom view NAME versions`     | List all available versions of an operation    |
+| `aom remove NAME`            | Remove an installed skill                      |
+| `aom env`                    | Show repository and environment configuration  |
 
 ### `aom init`
 
 Interactive setup wizard. Detects AI agent config files in the project directory, asks for remote repository URLs and optional local paths, saves configuration globally, and optionally fetches the tag index.
 
 The wizard guides you through:
+
 1. **Agent detection** — finds config files (e.g. `CLAUDE.md`) or lets you choose
 2. **Remote repositories** — one or more git URLs (GitHub, GitLab, etc.)
 3. **Local paths** (optional) — filesystem directories with local skill repos
@@ -307,9 +308,19 @@ The `--json` flag outputs a structured JSON object:
 {
   "name": "create-jira-story",
   "versions": [
-    {"version": "1.2.0", "type": "skills", "stable": true, "structure": "git"},
-    {"version": "1.1.0", "type": "skills", "stable": true, "structure": "git"},
-    {"version": "1.0.0", "type": "skills", "stable": true, "structure": "git"}
+    {
+      "version": "1.2.0",
+      "type": "skills",
+      "stable": true,
+      "structure": "git"
+    },
+    {
+      "version": "1.1.0",
+      "type": "skills",
+      "stable": true,
+      "structure": "git"
+    },
+    { "version": "1.0.0", "type": "skills", "stable": true, "structure": "git" }
   ]
 }
 ```
@@ -352,19 +363,19 @@ Use `--check` to exit with code 1 if no repositories are configured.
 
 ## Installation Scopes
 
-| Scope  | Location              | Use case                                    |
-|--------|-----------------------|---------------------------------------------|
-| Local  | `<project>/.claude/`  | Project-specific, pinned via `aom sync`     |
-| Global | `~/.claude/`          | Available in all projects                   |
+| Scope  | Location             | Use case                                |
+| ------ | -------------------- | --------------------------------------- |
+| Local  | `<project>/.claude/` | Project-specific, pinned via `aom sync` |
+| Global | `~/.claude/`         | Available in all projects               |
 
 Local takes precedence over global when both are installed.
 
-| Scope                     | Installed version |
-|---------------------------|-------------------|
-| Remote repo (source)      | `1.2.0` (HEAD)    |
-| Global `~/.claude/`       | `1.1.0`           |
-| Project A `.claude/`      | `1.0.0`           |
-| Project B `.claude/`      | `1.2.0`           |
+| Scope                | Installed version |
+| -------------------- | ----------------- |
+| Remote repo (source) | `1.2.0` (HEAD)    |
+| Global `~/.claude/`  | `1.1.0`           |
+| Project A `.claude/` | `1.0.0`           |
+| Project B `.claude/` | `1.2.0`           |
 
 ---
 
@@ -372,13 +383,14 @@ Local takes precedence over global when both are installed.
 
 The tool detects the active agent automatically from config files in the project directory. No environment variables required after `aom init`.
 
-| Config file         | Agent      |
-|---------------------|------------|
-| `CLAUDE.md`         | ClaudeCode |
-| `.cursorrules`      | Cursor     |
-| `opencode.json`     | OpenCode   |
-| `AGENTS.md`         | Codex      |
-| `.aider.conf.yml`   | Aider      |
+| Config file       | Agent      | Status    |
+| ----------------- | ---------- | --------- |
+| `CLAUDE.md`       | ClaudeCode | Supported |
+| `.kiro`           | Kiro       | Supported |
+| `.cursorrules`    | Cursor     | Planned   |
+| `opencode.json`   | OpenCode   | Planned   |
+| `AGENTS.md`       | Codex      | Planned   |
+| `.aider.conf.yml` | Aider      | Planned   |
 
 If multiple config files are found, the wizard asks which to use.
 
@@ -442,13 +454,13 @@ aom sync --fetch --dry-run
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| `git` not found | Ensure `git` is installed and on your PATH |
-| SSH authentication fails | Verify your SSH key is configured for the remote repository |
-| No skills found after `aom list` | Run `aom list --fetch` to refresh the tag index from the remote |
-| Wrong agent detected | Run `aom init` again to reconfigure |
-| `aom sync` skips a skill | Check the version constraint in your config file matches an existing tag |
+| Problem                          | Solution                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| `git` not found                  | Ensure `git` is installed and on your PATH                               |
+| SSH authentication fails         | Verify your SSH key is configured for the remote repository              |
+| No skills found after `aom list` | Run `aom list --fetch` to refresh the tag index from the remote          |
+| Wrong agent detected             | Run `aom init` again to reconfigure                                      |
+| `aom sync` skips a skill         | Check the version constraint in your config file matches an existing tag |
 
 ---
 
@@ -458,23 +470,40 @@ aom sync --fetch --dry-run
 
 ### High-level design
 
-```
-Remote Git Repos (SSH/HTTPS)         Local Cache (bare clone)
-  ┌─────────────────┐                ┌──────────────────────┐
-  │  Tagged skills   │──── fetch ───►│  ~/.cache/aom/<hash> │
-  │  versions        │               │  (blob-less clone)   │
-  └─────────────────┘                └──────────┬───────────┘
-                                                │
-Local Filesystem Paths                          │
-  ┌─────────────────┐                           │
-  │  Skills on disk  │─── scan ────►────────────┤
-  │  (development)   │                          │
-  └─────────────────┘                resolve version constraint
-                                                │
-                              ┌─────────────────┼─────────────────┐
-                              ▼                                   ▼
-                     Local scope                          Global scope
-                     <project>/.claude/                   ~/.claude/
+```mermaid
+flowchart TD
+    subgraph Sources
+        remote["Remote Git Repos\n(SSH/HTTPS)\nTagged skill versions"]
+        local_fs["Local Filesystem Paths\n(development)"]
+    end
+
+    cache["Local Cache (bare clone)\n~/.cache/aom/&lt;hash&gt;"]
+    remote -- "git fetch\n(blob-less clone)" --> cache
+
+    subgraph Discovery
+        adapters["Structure Adapters\nSuffixAdapter → DirAdapter → MetadataAdapter"]
+    end
+
+    cache --> adapters
+    local_fs -- scan --> adapters
+
+    resolver["Resolver\nMatch version constraints\n(exact, >=, latest, *)"]
+    adapters -- "SkillRecords" --> resolver
+
+    installer["Installer\nExtract blobs / copy files"]
+    resolver --> installer
+
+    subgraph "Installation Targets"
+        local_scope["Local Scope\n&lt;project&gt;/.claude/"]
+        global_scope["Global Scope\n~/.claude/"]
+    end
+
+    installer --> local_scope
+    installer --> global_scope
+
+    registry["registry.json\nTracks installed skills per scope"]
+    local_scope --> registry
+    global_scope --> registry
 ```
 
 ### Resolution priority
@@ -497,13 +526,13 @@ Cache location:
 
 Cloned once with `--filter=blob:none` (no file contents downloaded upfront). Blobs are fetched lazily when a skill is installed.
 
-| Method                             | Network?        | Description                                            |
-|------------------------------------|-----------------|--------------------------------------------------------|
-| `ensure_cloned()`                  | First time only | `git clone --bare --filter=blob:none`                  |
-| `fetch()`                          | Yes             | `git fetch --tags --prune origin`                      |
-| `list_skill_tags()`               | No              | `git for-each-ref refs/tags/` — reads local refs       |
-| `read_file_at_tag(tag, path)`     | Lazy            | `git show TAG:path` — fetches blob on demand           |
-| `extract_path_at_tag(tag, path, dest)` | Lazy       | `git archive` + Python `tarfile` for directories       |
+| Method                                 | Network?        | Description                                      |
+| -------------------------------------- | --------------- | ------------------------------------------------ |
+| `ensure_cloned()`                      | First time only | `git clone --bare --filter=blob:none`            |
+| `fetch()`                              | Yes             | `git fetch --tags --prune origin`                |
+| `list_skill_tags()`                    | No              | `git for-each-ref refs/tags/` — reads local refs |
+| `read_file_at_tag(tag, path)`          | Lazy            | `git show TAG:path` — fetches blob on demand     |
+| `extract_path_at_tag(tag, path, dest)` | Lazy            | `git archive` + Python `tarfile` for directories |
 
 ### Adapter pattern
 
@@ -516,11 +545,11 @@ extract_records(artifact_dir, artifact_type) -> List[SkillRecord]
 
 Adapters are chained in priority order: Suffix → Directory → Metadata. The Metadata adapter is the catch-all for the current repo layout.
 
-| Adapter            | On-disk layout                | Notes                                                              |
-|--------------------|-------------------------------|--------------------------------------------------------------------|
-| `suffix_adapter`   | `name@1.0.0/`                | Version visible in filesystem; requires renaming on release        |
-| `dir_adapter`      | `name/1.0.0/`                | Multiple versions can coexist; deeper nesting                      |
-| `metadata_adapter` | version in frontmatter        | **Recommended** — stable paths, version co-located with definition |
+| Adapter            | On-disk layout         | Notes                                                              |
+| ------------------ | ---------------------- | ------------------------------------------------------------------ |
+| `suffix_adapter`   | `name@1.0.0/`          | Version visible in filesystem; requires renaming on release        |
+| `dir_adapter`      | `name/1.0.0/`          | Multiple versions can coexist; deeper nesting                      |
+| `metadata_adapter` | version in frontmatter | **Recommended** — stable paths, version co-located with definition |
 
 ### SkillRecord
 
@@ -546,7 +575,7 @@ Stored inside the agent directory (`registry.json`):
   "version": 1,
   "installed": {
     "skills/complex-evaluator": "1.0.2",
-    "commands/deploy-skills":   "1.0.0"
+    "commands/deploy-skills": "1.0.0"
   },
   "updated_at": "2026-03-27T12:00:00+00:00"
 }
@@ -689,10 +718,10 @@ The CI pipeline runs tests across Python 3.10, 3.11, and 3.12 on both Ubuntu and
 
 Two workflow files power the CI/CD:
 
-| Workflow | File | Trigger |
-|----------|------|---------|
-| **Build** | `.github/workflows/build.yml` | Push to `main`, PRs to `main`, version tags (`v*`) |
-| **Bump Version** | `.github/workflows/bump-version.yml` | PR merged to `main` |
+| Workflow         | File                                 | Trigger                                            |
+| ---------------- | ------------------------------------ | -------------------------------------------------- |
+| **Build**        | `.github/workflows/build.yml`        | Push to `main`, PRs to `main`, version tags (`v*`) |
+| **Bump Version** | `.github/workflows/bump-version.yml` | PR merged to `main`                                |
 
 ### Build pipeline
 
@@ -701,12 +730,13 @@ On every push to `main` and on every PR targeting `main`, the pipeline runs:
 1. **Test** — lint (flake8) + pytest with coverage across Python 3.10/3.11/3.12 on Ubuntu and Windows
 2. **Build** — produces platform binaries after tests pass:
 
-| Job | Runner | Output |
-|-----|--------|--------|
-| `build-linux` | `ubuntu-latest` | `dist/aom` |
+| Job             | Runner           | Output         |
+| --------------- | ---------------- | -------------- |
+| `build-linux`   | `ubuntu-latest`  | `dist/aom`     |
 | `build-windows` | `windows-latest` | `dist\aom.exe` |
 
 Each build job:
+
 1. Checks out the repository
 2. Sets up Python 3.11 with pip caching
 3. Installs PyInstaller
@@ -731,22 +761,22 @@ Tags containing a hyphen (e.g. `v1.2.0-beta`) are automatically marked as pre-re
 
 When a PR is merged to `main`, the `bump-version` workflow automatically creates a new version tag based on the PR title (Conventional Commits):
 
-| PR title pattern | Bump type | Example |
-|------------------|-----------|---------|
-| `feat: ...` or `feat(scope): ...` | Minor | `v1.0.0` → `v1.1.0` |
-| `type!: ...` or `BREAKING CHANGE` in body | Major | `v1.0.0` → `v2.0.0` |
-| Anything else (`fix:`, `chore:`, `docs:`, ...) | Patch | `v1.0.0` → `v1.0.1` |
+| PR title pattern                               | Bump type | Example             |
+| ---------------------------------------------- | --------- | ------------------- |
+| `feat: ...` or `feat(scope): ...`              | Minor     | `v1.0.0` → `v1.1.0` |
+| `type!: ...` or `BREAKING CHANGE` in body      | Major     | `v1.0.0` → `v2.0.0` |
+| Anything else (`fix:`, `chore:`, `docs:`, ...) | Patch     | `v1.0.0` → `v1.0.1` |
 
 If no version tag exists yet, the first merged PR sets the version to `v1.0.0`.
 
 ### Workflow triggers summary
 
-| Event | Jobs run |
-|-------|---------|
-| Push to `main` | `test`, `build-linux`, `build-windows` |
-| Pull request to `main` | `test`, `build-linux`, `build-windows` |
-| Push tag `v*` | `test`, `build-linux`, `build-windows`, `release` |
-| PR merged to `main` | `bump-version` |
+| Event                  | Jobs run                                          |
+| ---------------------- | ------------------------------------------------- |
+| Push to `main`         | `test`, `build-linux`, `build-windows`            |
+| Pull request to `main` | `test`, `build-linux`, `build-windows`            |
+| Push tag `v*`          | `test`, `build-linux`, `build-windows`, `release` |
+| PR merged to `main`    | `bump-version`                                    |
 
 ---
 
@@ -785,12 +815,12 @@ bash build.sh --clean
 
 PyInstaller packages the following into a single binary using `aom.spec`:
 
-| Bundled item | Destination inside bundle |
-|---|---|
-| `aom/` Python package | `aom/` |
-| `bin/aom` (bash) | `bin/aom` |
-| `bin/aom.ps1` (PowerShell) | `bin/aom.ps1` |
-| All alias scripts (`aom-install`, `aom-list`, `aom-sync`) | `bin/` |
+| Bundled item                                              | Destination inside bundle |
+| --------------------------------------------------------- | ------------------------- |
+| `aom/` Python package                                     | `aom/`                    |
+| `bin/aom` (bash)                                          | `bin/aom`                 |
+| `bin/aom.ps1` (PowerShell)                                | `bin/aom.ps1`             |
+| All alias scripts (`aom-install`, `aom-list`, `aom-sync`) | `bin/`                    |
 
 Key spec settings:
 
@@ -809,11 +839,11 @@ Key spec settings:
 
 ## Code Standards
 
-| Tool   | Purpose          | Command           |
-|--------|------------------|--------------------|
-| black  | Code formatting  | `make format`      |
-| flake8 | Linting          | `make lint`        |
-| pytest | Testing          | `make test`        |
+| Tool   | Purpose         | Command       |
+| ------ | --------------- | ------------- |
+| black  | Code formatting | `make format` |
+| flake8 | Linting         | `make lint`   |
+| pytest | Testing         | `make test`   |
 
 Configuration: `pyproject.toml` (black, pytest, coverage), `.flake8` (flake8).
 
@@ -879,4 +909,4 @@ Version bumping is handled automatically on merge — see [Auto version bumping]
 
 # License
 
-<!-- TODO: Add license information -->
+This project is licensed under the [MIT License](LICENSE).
