@@ -263,11 +263,11 @@ def _list_table(
         global_v = _best_version_str(name, global_records)
         latest_v = _best_version_str(name, repo_records, stable_only=True)
 
-        local_d = green(local_v) if local_v != "—" else dim("—")
-        global_d = yellow(global_v) if global_v != "—" else dim("—")
+        local_d = green(f"{local_v:<12}") if local_v != "—" else dim(f"{'—':<12}")
+        global_d = yellow(f"{global_v:<12}") if global_v != "—" else dim(f"{'—':<12}")
         latest_d = bold(latest_v) if latest_v != "—" else dim("—")
 
-        print(f"{name:<{col_w}}  {local_d:<21}  {global_d:<21}  {latest_d}")
+        print(f"{name:<{col_w}}  {local_d}  {global_d}  {latest_d}")
 
     print()
     return 0
