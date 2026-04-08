@@ -149,17 +149,17 @@ Any teammate who checks out the project runs the same command — the tool clone
 
 **`## Skills Source`** — the remote repository URL:
 
-```markdown
+````markdown
 ## Skills Source
 
 ```yaml
 url: "git@gitlab.com:myorg/ai-grimoire.git"
 ```
-```
+````
 
 **`## Skills Requirements`** — pinned versions:
 
-```markdown
+````markdown
 ## Skills Requirements
 
 ```yaml
@@ -169,7 +169,7 @@ required:
   evaluate-workflow: "latest"
   child/generate-handwriting-practice: "*"
 ```
-```
+````
 
 The header is case-insensitive. The parser accepts fenced YAML blocks or 4-space-indented YAML.
 
