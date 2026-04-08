@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from aom.cli import build_parser, main, _c, _best_version_str, _suggest_similar, cmd_view
+from aom.cli import build_parser, main, _c, _best_version_str, _suggest_similar
 
 
 # ===================================================================
