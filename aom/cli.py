@@ -15,6 +15,7 @@ Commands:
   sync      Install all required operations declared in the project config
   remove    Uninstall an operation from the local or global scope
   update    Upgrade an operation to the latest available version
+  view      View details about an operation (e.g. available versions)
   env       Display environment configuration and diagnostics
 
 Run `aom <command> --help` for command-specific options and examples.
@@ -43,7 +44,7 @@ from .discovery import scan_git_repository, scan_installed, scan_repository
 from .git import GitRepo
 from .installer import install, uninstall
 from .manifest import parse_manifest, parse_repo_url, write_repo_url
-from .models import SkillRecord, VersionRequirement
+from .models import SkillRecord, VersionRequirement, parse_version
 from .registry import Registry
 from .resolver import resolve, resolve_all, resolve_latest
 from .settings import (
@@ -412,6 +413,126 @@ def cmd_update(args: argparse.Namespace) -> int:
         no_fetch=getattr(args, "no_fetch", False),
     )
     return cmd_install(install_args)
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: view
+# ---------------------------------------------------------------------------
+
+def cmd_view(args: argparse.Namespace) -> int:
+    """View details about an operation."""
+    if args.view_command == "versions":
+        return _view_versions(args)
+    # Shouldn't happen due to argparse choices, but just in case
+    print(red(f"Unknown view subcommand: {args.view_command}"))
+    return 1
+
+
+def _view_versions(args: argparse.Namespace) -> int:
+    """List all available versions of a given operation."""
+    name = args.name
+    git_repos = _get_git_repos(getattr(args, "project_dir", None))
+    _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
+
+    repo_records = _get_repo_records(git_repos)
+    global_dir = get_global_dir()
+    global_records = scan_installed(global_dir) if global_dir.exists() else []
+    local_dir = get_local_dir(getattr(args, "project_dir", None))
+    local_records = scan_installed(local_dir) if local_dir.exists() else []
+
+    # Collect all records matching the name
+    name_lower = name.lower()
+    matching = [
+        r for r in repo_records + global_records + local_records
+        if r.name.lower() == name_lower or r.name.lower().endswith("/" + name_lower)
+    ]
+
+    if not matching:
+        print(red(f"✗ No versions found for: {name}"))
+        _suggest_similar(name, repo_records)
+        if git_repos and not getattr(args, "fetch", False):
+            print(dim("  Tip: run with --fetch to refresh the tag index from the remote."))
+        return 1
+
+    if args.json:
+        return _view_versions_json(name, matching)
+
+    return _view_versions_table(name, matching, local_records, global_records)
+
+
+def _view_versions_table(
+    name: str,
+    matching: list[SkillRecord],
+    local_records: list[SkillRecord],
+    global_records: list[SkillRecord],
+) -> int:
+    # Deduplicate by version string, tracking source
+    version_info: dict[str, dict] = {}
+    for r in matching:
+        v_str = r.version.raw if r.version else "unknown"
+        if v_str not in version_info:
+            version_info[v_str] = {
+                "version": r.version,
+                "type": r.artifact_type,
+                "sources": set(),
+            }
+        if r in local_records:
+            version_info[v_str]["sources"].add("local")
+        elif r in global_records:
+            version_info[v_str]["sources"].add("global")
+        else:
+            version_info[v_str]["sources"].add("repo")
+
+    # Sort versions descending
+    sorted_versions = sorted(
+        version_info.items(),
+        key=lambda item: item[1]["version"] if item[1]["version"] else "",
+        reverse=True,
+    )
+
+    print()
+    print(bold(f"Versions of {name}"))
+    print("-" * 50)
+    print(f"  {'VERSION':<20}  {'SOURCE':<15}  {'STATUS'}")
+    print(f"  {'-------':<20}  {'------':<15}  {'------'}")
+
+    for v_str, info in sorted_versions:
+        sources = ", ".join(sorted(info["sources"]))
+        is_snapshot = info["version"] and info["version"].is_snapshot
+        status = yellow("snapshot") if is_snapshot else green("stable")
+        installed = ""
+        if "local" in info["sources"] or "global" in info["sources"]:
+            installed = f"  {bold('[installed]')}"
+        print(f"  {v_str:<20}  {sources:<15}  {status}{installed}")
+
+    print()
+    print(dim(f"  {len(sorted_versions)} version(s) found"))
+    print()
+    return 0
+
+
+def _view_versions_json(name: str, matching: list[SkillRecord]) -> int:
+    versions = []
+    seen = set()
+    for r in matching:
+        v_str = r.version.raw if r.version else "unknown"
+        if v_str in seen:
+            continue
+        seen.add(v_str)
+        versions.append({
+            "version": v_str,
+            "type": r.artifact_type,
+            "stable": r.version.is_stable if r.version else False,
+            "structure": r.structure,
+        })
+    # Sort by version descending
+    versions.sort(
+        key=lambda v: parse_version(v["version"]) or "",
+        reverse=True,
+    )
+    out = {"name": name, "versions": versions}
+    print(json.dumps(out, indent=2))
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -971,6 +1092,38 @@ def build_parser() -> argparse.ArgumentParser:
     _add_fetch_args(p_update)
     _add_scope_args(p_update)
 
+    # -- view -----------------------------------------------------------------
+    p_view = sub.add_parser(
+        "view",
+        help="View details about an operation (e.g. available versions)",
+        description=(
+            "Inspect a specific operation.\n\n"
+            "Subcommands:\n"
+            "  versions   List all available versions of the operation"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_view.add_argument(
+        "name", metavar="NAME",
+        help="Name of the operation to inspect (e.g. implement-missing-components)",
+    )
+    p_view.add_argument(
+        "view_command", metavar="SUBCOMMAND", choices=["versions"],
+        help="What to view: versions",
+    )
+    p_view.add_argument(
+        "--json", action="store_true",
+        help="Print output as JSON instead of a human-readable table",
+    )
+    _add_fetch_args(p_view)
+    p_view.add_argument(
+        "--project-dir", metavar="DIR", type=Path, default=None,
+        help=(
+            "Path to the project root directory used to locate the local scope "
+            "(default: current working directory)"
+        ),
+    )
+
     # -- env ------------------------------------------------------------------
     p_env = sub.add_parser(
         "env",
@@ -1016,6 +1169,7 @@ def main(argv: list[str] | None = None) -> int:
         "sync":    cmd_sync,
         "remove":  cmd_remove,
         "update":  cmd_update,
+        "view":    cmd_view,
         "env":     cmd_env,
     }
 

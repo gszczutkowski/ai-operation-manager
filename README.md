@@ -106,9 +106,10 @@ aom init
   ✓ 3 skill(s) found in local paths
 
 Next steps:
-  aom list            — view available skills
-  aom install NAME    — install a skill
-  aom sync            — install all required skills from config
+  aom list              — view available skills
+  aom view NAME versions — list all versions of a skill
+  aom install NAME      — install a skill
+  aom sync              — install all required skills from config
 ```
 
 #### 2. Declare requirements in CLAUDE.md
@@ -220,6 +221,7 @@ No environment variables are needed. The AI agent is auto-detected from config f
 | `aom list`                    | Show available and installed versions             |
 | `aom sync`                    | Install all requirements from the config file     |
 | `aom update NAME`             | Update a skill to the latest stable version       |
+| `aom view NAME versions`      | List all available versions of an operation        |
 | `aom remove NAME`             | Remove an installed skill                         |
 | `aom env`                     | Show repository and environment configuration     |
 
@@ -275,6 +277,42 @@ aom remove create-jira-story --global # remove from global scope
 ### `aom update`
 
 Reinstalls the latest stable repository version (delegates to `install :latest`).
+
+### `aom view`
+
+Inspect a specific operation. Currently supports the `versions` subcommand, which lists all available versions from all sources (remote repositories, local paths, and installed scopes).
+
+```bash
+aom view create-jira-story versions          # list all versions
+aom view create-jira-story versions --json   # machine-readable JSON output
+aom view create-jira-story versions --fetch  # refresh tag index first
+```
+
+Example output:
+
+```
+Versions of create-jira-story
+--------------------------------------------------
+  VERSION               SOURCE           STATUS
+  -------               ------           ------
+  1.2.0                 repo             stable
+  1.1.0                 global, repo     stable  [installed]
+  1.0.0                 local, repo      stable  [installed]
+  0.9.0-SNAPSHOT        repo             snapshot
+```
+
+The `--json` flag outputs a structured JSON object:
+
+```json
+{
+  "name": "create-jira-story",
+  "versions": [
+    {"version": "1.2.0", "type": "skills", "stable": true, "structure": "git"},
+    {"version": "1.1.0", "type": "skills", "stable": true, "structure": "git"},
+    {"version": "1.0.0", "type": "skills", "stable": true, "structure": "git"}
+  ]
+}
+```
 
 ### `aom env`
 
@@ -355,7 +393,8 @@ cd ~/my-project
 aom init
 # → detects CLAUDE.md → asks for SSH URL → fetches tag index
 
-aom list                   # see all available versions
+aom list                                     # see all available operations
+aom view create-jira-story versions          # see all versions of a skill
 aom install create-jira-story:1.0.0
 aom install design-workflow
 ```
