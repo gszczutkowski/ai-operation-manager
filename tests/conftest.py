@@ -11,8 +11,8 @@ from aom.models import SkillRecord, parse_version
 def _isolate_agent_cache(monkeypatch):
     """Reset the in-process agent cache between tests.
 
-    Sets the cache directly to ClaudeCode (the only agent) so tests
-    don't trigger interactive prompts.
+    Sets the cache directly to ClaudeCode so tests don't trigger
+    interactive prompts.
     """
     import aom.config as cfg
     monkeypatch.setattr(cfg, "_AGENT_CACHE", "ClaudeCode")

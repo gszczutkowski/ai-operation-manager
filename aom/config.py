@@ -40,6 +40,16 @@ AGENT_MAP: dict[str, AgentConfig] = {
             "hooks":    "hooks",
         },
     },
+    "Kiro": {
+        "dir_name":    ".kiro",          # ~/.kiro  /  <project>/.kiro
+        "config_file": ".kiro",          # detection: directory presence in CWD
+        "type_dirs": {                   # grimoire type  →  agent subdir
+            "skills":   "steering",
+            "commands": "steering",
+            "agents":   "agents",
+            "hooks":    "hooks",
+        },
+    },
     # Uncomment / fill in when paths are confirmed:
     # "OpenCode": {
     #     "dir_name":    ".opencode",
