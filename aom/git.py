@@ -261,8 +261,9 @@ class GitRepo:
                 # Skip symlinks and special file types (security)
                 if member.issym() or member.islnk() or not (member.isfile() or member.isdir()):
                     continue
-                if member.name.startswith(prefix):
-                    member.name = member.name[len(prefix):]
+                if not member.name.startswith(prefix):
+                    continue
+                member.name = member.name[len(prefix):]
                 if not member.name:
                     continue
                 # Guard against path traversal (CVE-2007-4559)
