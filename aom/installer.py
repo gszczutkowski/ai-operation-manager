@@ -170,6 +170,11 @@ def _destination(record: SkillRecord, install_dir: Path) -> Path:
 
 def _copy(source: Path, dest: Path) -> None:
     """Copy *source* (file or directory tree) to *dest*."""
+    # Guard against self-copy: when reinstalling a skill that is already at the
+    # target location (e.g. local record installed back into the same scope),
+    # source and dest resolve to the same path.  rmtree would destroy both.
+    if source.resolve() == dest.resolve():
+        return
     if source.is_dir():
         if dest.exists():
             shutil.rmtree(dest)
