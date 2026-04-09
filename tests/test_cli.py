@@ -481,18 +481,19 @@ class TestCmdDeploy:
         deploy_dir = tmp_path / "deploy"
         deploy_dir.mkdir()
 
+        agent_map = {"ClaudeCode": {
+            "dir_name": global_agent_dir.name,
+            "config_file": "CLAUDE.md",
+            "type_dirs": {
+                "skills": "skills", "commands": "commands",
+                "agents": "agents", "hooks": "hooks",
+            },
+        }}
         with patch("aom.cli._get_deploy_dir", return_value=deploy_dir), \
              patch("aom.cli._get_exe_name", return_value="aom"), \
              patch("aom.cli.get_cache_base", return_value=cache_dir), \
              patch("aom.cli.get_settings_dir", return_value=settings_dir), \
-             patch("aom.cli.AGENT_MAP", {"ClaudeCode": {
-                 "dir_name": global_agent_dir.name,
-                 "config_file": "CLAUDE.md",
-                 "type_dirs": {
-                     "skills": "skills", "commands": "commands",
-                     "agents": "agents", "hooks": "hooks",
-                 },
-             }}), \
+             patch("aom.cli.AGENT_MAP", agent_map), \
              patch("pathlib.Path.home", return_value=tmp_path):
             result = main(["undeploy", "--purge"])
 
