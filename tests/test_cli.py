@@ -390,7 +390,8 @@ class TestDeployHelpers:
              patch.dict("os.environ", {"LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"}):
             mock_sys.platform = "win32"
             result = _get_deploy_dir()
-            assert result == Path("C:\\Users\\test\\AppData\\Local\\ai-operation-manager\\bin")
+            expected = Path("C:\\Users\\test\\AppData\\Local") / "ai-operation-manager" / "bin"
+            assert result == expected
 
     def test_get_deploy_dir_unix(self):
         from aom.cli import _get_deploy_dir
