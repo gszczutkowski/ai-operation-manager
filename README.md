@@ -25,7 +25,7 @@ A zero-dependency Python CLI that installs and manages versioned AI skills (slas
 
 ### Installation
 
-#### Option A — Pre-built binary (recommended)
+#### Option A — Pre-built binary with `aom deploy` (recommended)
 
 Download the latest binary for your platform from the [Releases](../../releases) page:
 
@@ -34,20 +34,39 @@ Download the latest binary for your platform from the [Releases](../../releases)
 | Linux (x86-64)   | `aom-linux-amd64`       |
 | Windows (x86-64) | `aom-windows-amd64.exe` |
 
+Then run `aom deploy` to install it system-wide and add it to your PATH automatically:
+
+```bash
+# Linux / macOS
+chmod +x aom-linux-amd64
+./aom-linux-amd64 deploy
+# → Deploys to ~/.local/bin/aom and adds it to PATH
+```
+
+```powershell
+# Windows
+.\aom-windows-amd64.exe deploy
+# → Deploys to %LOCALAPPDATA%\ai-operation-manager\bin\aom.exe and adds it to PATH
+```
+
+After deploying, open a new terminal and verify with `aom --help`.
+
+#### Option B — Manual placement
+
+If you prefer not to use `aom deploy`, you can manually copy the binary to a directory on your PATH:
+
 ```bash
 # Linux / macOS
 chmod +x aom-linux-amd64
 sudo mv aom-linux-amd64 /usr/local/bin/aom
-aom --help
 ```
 
 ```powershell
 # Windows — copy to a directory on your PATH, e.g. C:\tools\
 Move-Item aom-windows-amd64.exe C:\tools\aom.exe
-aom --help
 ```
 
-#### Option B — From source
+#### Option C — From source
 
 Clone the repository and add `bin/` to your PATH:
 
@@ -62,6 +81,31 @@ export PATH="$HOME/ai-operation-manager/bin:$PATH"   # add to ~/.bashrc or ~/.zs
 git clone git@github.com:yourorg/ai-operation-manager.git $HOME\ai-operation-manager
 # Add $HOME\ai-operation-manager\bin to your system PATH, then use aom.ps1
 ```
+
+### Uninstallation
+
+To remove the deployed binary and clean up PATH:
+
+```bash
+aom undeploy
+```
+
+To fully remove all global data created by aom (repository cache, settings, and globally installed operations):
+
+```bash
+aom undeploy --purge
+```
+
+The `--purge` flag removes:
+
+| Data                     | Location (Linux/macOS)                        | Location (Windows)                                   |
+| ------------------------ | --------------------------------------------- | ---------------------------------------------------- |
+| Deployed binary          | `~/.local/bin/aom`                            | `%LOCALAPPDATA%\ai-operation-manager\bin\aom.exe`    |
+| Repository cache         | `~/.cache/ai-operation-manager/`              | `%LOCALAPPDATA%\ai-operation-manager\`               |
+| Global settings          | `~/.config/aom/`                              | `%APPDATA%\aom\`                                     |
+| Globally installed ops   | `~/.claude/skills/`, `commands/`, `agents/`, `hooks/`, `registry.json` | Same directory names under `%USERPROFILE%` |
+
+> **Note:** `aom undeploy --purge` does not remove local project data (e.g. `<project>/.claude/`). Remove those directories manually if needed.
 
 ### Quick Start
 
@@ -214,16 +258,19 @@ No environment variables are needed. The AI agent is auto-detected from config f
 
 ### Commands overview
 
-| Command                      | Description                                    |
-| ---------------------------- | ---------------------------------------------- |
-| `aom init`                   | Interactive setup: detect agent, save repo URL |
-| `aom install NAME[:VERSION]` | Install a skill (local scope by default)       |
-| `aom list`                   | Show available and installed versions          |
-| `aom sync`                   | Install all requirements from the config file  |
-| `aom update NAME`            | Update a skill to the latest stable version    |
-| `aom view NAME versions`     | List all available versions of an operation    |
-| `aom remove NAME`            | Remove an installed skill                      |
-| `aom env`                    | Show repository and environment configuration  |
+| Command                      | Description                                              |
+| ---------------------------- | -------------------------------------------------------- |
+| `aom init`                   | Interactive setup: detect agent, save repo URL           |
+| `aom fetch`                  | Refresh the operation index from all remote repositories |
+| `aom install NAME[:VERSION]` | Install a skill (local scope by default)                 |
+| `aom list`                   | Show available and installed versions                    |
+| `aom sync`                   | Install all requirements from the config file            |
+| `aom update NAME`            | Update a skill to the latest stable version              |
+| `aom view NAME versions`     | List all available versions of an operation              |
+| `aom remove NAME`            | Remove an installed skill                                |
+| `aom deploy`                 | Install the aom binary system-wide and add to PATH       |
+| `aom undeploy [--purge]`     | Remove the binary (and optionally all global data)       |
+| `aom env`                    | Show repository and environment configuration            |
 
 ### `aom init`
 
@@ -324,6 +371,36 @@ The `--json` flag outputs a structured JSON object:
   ]
 }
 ```
+
+### `aom deploy`
+
+Copies the running aom executable to a system directory and adds it to the user's PATH. Only available when running from a pre-built binary (not from source).
+
+```bash
+aom deploy
+```
+
+| Platform    | Deploy location                                       |
+| ----------- | ----------------------------------------------------- |
+| Linux/macOS | `~/.local/bin/aom`                                    |
+| Windows     | `%LOCALAPPDATA%\ai-operation-manager\bin\aom.exe`     |
+
+On Windows, the directory is added to the user PATH via the registry and broadcast to open terminals. On Linux/macOS, an export line is appended to `~/.bashrc` or `~/.profile`.
+
+### `aom undeploy`
+
+Removes the deployed binary and cleans up the PATH entry.
+
+```bash
+aom undeploy            # remove binary and PATH entry only
+aom undeploy --purge    # also remove all global data (cache, settings, installed operations)
+```
+
+Without `--purge`, only the binary and PATH entry are removed. With `--purge`, the following are also deleted:
+
+- **Repository cache** — bare git clones (`~/.cache/ai-operation-manager/` or `%LOCALAPPDATA%\ai-operation-manager\`)
+- **Global settings** — `settings.json` (`~/.config/aom/` or `%APPDATA%\aom\`)
+- **Globally installed operations** — artifact directories and `registry.json` under each agent's global directory (e.g. `~/.claude/skills/`, `~/.claude/commands/`, etc.)
 
 ### `aom env`
 

@@ -17,7 +17,7 @@ Commands:
   update    Upgrade an operation to the latest available version
   view      View details about an operation (e.g. available versions)
   deploy    Install the aom binary to a system directory and add it to PATH
-  undeploy  Remove the deployed aom binary and clean up PATH
+  undeploy  Remove the deployed aom binary and clean up PATH (--purge for full removal)
   env       Display environment configuration and diagnostics
 
 Run `aom <command> --help` for command-specific options and examples.
