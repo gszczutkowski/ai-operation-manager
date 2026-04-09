@@ -7,7 +7,6 @@ from unittest.mock import patch
 import pytest
 
 from aom.cli import build_parser, main, _c, _best_version_str, _suggest_similar
-from aom.models import SkillRecord, Version, VersionRequirement
 
 
 # ===================================================================
