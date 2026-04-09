@@ -456,3 +456,73 @@ class TestCmdDeploy:
         assert result == 0
         assert not target.exists()
         assert "Removed" in capsys.readouterr().out
+
+    def test_undeploy_purge_removes_cache_and_settings(self, tmp_path, capsys):
+        """--purge removes repository cache, settings, and global operations."""
+        # Set up fake directories
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        (cache_dir / "somerepo").mkdir()
+        (cache_dir / "somerepo" / "HEAD").touch()
+
+        settings_dir = tmp_path / "settings"
+        settings_dir.mkdir()
+        (settings_dir / "settings.json").write_text("{}")
+
+        global_agent_dir = tmp_path / ".claude"
+        global_agent_dir.mkdir()
+        (global_agent_dir / "skills").mkdir()
+        (global_agent_dir / "skills" / "my-skill.md").write_text("# skill")
+        (global_agent_dir / "commands").mkdir()
+        (global_agent_dir / "agents").mkdir()
+        (global_agent_dir / "hooks").mkdir()
+        (global_agent_dir / "registry.json").write_text("{}")
+
+        deploy_dir = tmp_path / "deploy"
+        deploy_dir.mkdir()
+
+        agent_map = {"ClaudeCode": {
+            "dir_name": global_agent_dir.name,
+            "config_file": "CLAUDE.md",
+            "type_dirs": {
+                "skills": "skills", "commands": "commands",
+                "agents": "agents", "hooks": "hooks",
+            },
+        }}
+        with patch("aom.cli._get_deploy_dir", return_value=deploy_dir), \
+             patch("aom.cli._get_exe_name", return_value="aom"), \
+             patch("aom.cli.get_cache_base", return_value=cache_dir), \
+             patch("aom.cli.get_settings_dir", return_value=settings_dir), \
+             patch("aom.cli.AGENT_MAP", agent_map), \
+             patch("pathlib.Path.home", return_value=tmp_path):
+            result = main(["undeploy", "--purge"])
+
+        assert result == 0
+        out = capsys.readouterr().out
+        assert not cache_dir.exists()
+        assert not settings_dir.exists()
+        assert not (global_agent_dir / "registry.json").exists()
+        assert not (global_agent_dir / "skills").exists()
+        assert "Purging" in out
+        assert "repository cache" in out.lower()
+
+    def test_undeploy_purge_no_binary_still_purges(self, tmp_path, capsys):
+        """--purge continues even when the binary is not deployed."""
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+
+        deploy_dir = tmp_path / "deploy"
+        deploy_dir.mkdir()
+
+        with patch("aom.cli._get_deploy_dir", return_value=deploy_dir), \
+             patch("aom.cli._get_exe_name", return_value="aom"), \
+             patch("aom.cli.get_cache_base", return_value=cache_dir), \
+             patch("aom.cli.get_settings_dir", return_value=tmp_path / "no-settings"), \
+             patch("aom.cli.AGENT_MAP", {}), \
+             patch("pathlib.Path.home", return_value=tmp_path):
+            result = main(["undeploy", "--purge"])
+
+        assert result == 0
+        out = capsys.readouterr().out
+        assert not cache_dir.exists()
+        assert "Binary not found" in out

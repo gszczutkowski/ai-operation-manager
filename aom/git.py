@@ -44,7 +44,7 @@ _TAG_RE = re.compile(
 # Cache location helpers
 # ---------------------------------------------------------------------------
 
-def _cache_base() -> Path:
+def get_cache_base() -> Path:
     if platform.system() == "Windows":
         local_app = os.environ.get("LOCALAPPDATA", "")
         base = Path(local_app) if local_app else Path.home() / "AppData" / "Local"
@@ -77,7 +77,7 @@ class GitRepo:
 
     def __init__(self, url: str, cache_dir: Path | None = None) -> None:
         self.url = url
-        self.cache_dir: Path = cache_dir or (_cache_base() / _url_hash(url))
+        self.cache_dir: Path = cache_dir or (get_cache_base() / _url_hash(url))
 
     # ------------------------------------------------------------------
     # Clone / fetch

@@ -17,7 +17,7 @@ Commands:
   update    Upgrade an operation to the latest available version
   view      View details about an operation (e.g. available versions)
   deploy    Install the aom binary to a system directory and add it to PATH
-  undeploy  Remove the deployed aom binary and clean up PATH
+  undeploy  Remove the deployed aom binary and clean up PATH (--purge for full removal)
   env       Display environment configuration and diagnostics
 
 Run `aom <command> --help` for command-specific options and examples.
@@ -44,7 +44,7 @@ from .config import (
     get_repo_urls,
 )
 from .discovery import scan_git_repository, scan_installed, scan_repository
-from .git import GitRepo
+from .git import GitRepo, get_cache_base
 from .installer import install, uninstall
 from .manifest import parse_manifest, parse_repo_url, write_repo_url
 from .models import SkillRecord, VersionRequirement, parse_version
@@ -56,6 +56,7 @@ from .settings import (
     get_local_paths as get_global_local_paths,
     set_local_paths as set_global_local_paths,
     get_fetch_ttl,
+    get_settings_dir,
 )
 
 
@@ -776,24 +777,38 @@ def cmd_deploy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _rmtree(path: Path) -> bool:
+    """Remove a directory tree. Returns True on success, False on error."""
+    import shutil
+    try:
+        shutil.rmtree(path)
+        return True
+    except OSError as exc:
+        print(red(f"  Warning: could not fully remove {path}: {exc}"))
+        return False
+
+
 def cmd_undeploy(args: argparse.Namespace) -> int:
     """Remove the deployed aom binary and clean up PATH."""
+    purge = getattr(args, "purge", False)
     target_dir = _get_deploy_dir()
     target = target_dir / _get_exe_name()
 
     if not target.exists():
-        print(yellow(f"Nothing to remove — {target} does not exist."))
-        return 0
+        if not purge:
+            print(yellow(f"Nothing to remove — {target} does not exist."))
+            return 0
+        print(yellow(f"Binary not found at {target}, skipping."))
+    else:
+        try:
+            target.unlink()
+            print(green(f"Removed {target}"))
+        except PermissionError:
+            print(red(f"Error: Cannot delete {target} — the file may be in use."))
+            print("Close any running aom processes and try again.")
+            return 1
 
-    try:
-        target.unlink()
-        print(green(f"Removed {target}"))
-    except PermissionError:
-        print(red(f"Error: Cannot delete {target} — the file may be in use."))
-        print("Close any running aom processes and try again.")
-        return 1
-
-    # Clean up empty directory
+    # Clean up empty deploy directory
     try:
         if target_dir.exists() and not any(target_dir.iterdir()):
             target_dir.rmdir()
@@ -809,6 +824,51 @@ def cmd_undeploy(args: argparse.Namespace) -> int:
 
     if removed:
         print(green(f"Removed {target_dir} from PATH."))
+
+    # --purge: remove all global data created by aom
+    if purge:
+        print()
+        print(bold("Purging all global aom data..."))
+
+        # 1. Repository cache (bare git clones)
+        cache_dir = get_cache_base()
+        if cache_dir.exists():
+            if _rmtree(cache_dir):
+                print(green(f"  Removed repository cache: {cache_dir}"))
+        else:
+            print(f"  Repository cache not found: {cache_dir}")
+
+        # 2. Global settings
+        settings_dir = get_settings_dir()
+        if settings_dir.exists():
+            if _rmtree(settings_dir):
+                print(green(f"  Removed global settings: {settings_dir}"))
+        else:
+            print(f"  Global settings not found: {settings_dir}")
+
+        # 3. Globally installed operations (skills, commands, agents, hooks + registry)
+        for agent_name, agent_cfg in AGENT_MAP.items():
+            global_agent_dir = Path.home() / agent_cfg["dir_name"]
+            if not global_agent_dir.exists():
+                continue
+            # Remove registry file
+            registry_file = global_agent_dir / "registry.json"
+            if registry_file.exists():
+                try:
+                    registry_file.unlink()
+                    print(green(f"  Removed {agent_name} global registry: {registry_file}"))
+                except OSError as exc:
+                    print(red(f"  Warning: could not remove {registry_file}: {exc}"))
+            # Remove artifact subdirectories that aom manages
+            unique_dirs: set[str] = set()
+            for artifact_type in ARTIFACT_TYPES:
+                subdir = agent_cfg.get("type_dirs", {}).get(artifact_type, artifact_type)
+                unique_dirs.add(subdir)
+            for subdir in sorted(unique_dirs):
+                subdir_path = global_agent_dir / subdir
+                if subdir_path.exists():
+                    if _rmtree(subdir_path):
+                        print(green(f"  Removed {agent_name} global {subdir}/: {subdir_path}"))
 
     print()
     print("  aom has been undeployed.")
@@ -1340,15 +1400,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # -- undeploy -------------------------------------------------------------
-    sub.add_parser(
+    p_undeploy = sub.add_parser(
         "undeploy",
         help="Remove the deployed aom binary and clean up PATH",
         description=(
             "Remove the aom executable from the deployment directory and\n"
             "remove that directory from the user's PATH (Windows only).\n\n"
+            "With --purge, also removes all global data created by aom:\n"
+            "  - Repository cache (bare git clones)\n"
+            "  - Global settings (settings.json)\n"
+            "  - Globally installed operations (skills, commands, agents, hooks)\n\n"
             "This is the inverse of 'aom deploy'."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_undeploy.add_argument(
+        "--purge",
+        action="store_true",
+        default=False,
+        help="Also remove repository cache, global settings, and globally installed operations",
     )
 
     # -- env ------------------------------------------------------------------
