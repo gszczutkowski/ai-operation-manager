@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from aom.git import GitRepo, _cache_base, _url_hash, _TAG_RE
+from aom.git import GitRepo, get_cache_base, _url_hash, _TAG_RE
 
 
 # ===================================================================
@@ -54,15 +54,15 @@ class TestCacheHelpers:
         assert h1 != h2
 
     @patch("platform.system", return_value="Linux")
-    def test_cache_base_linux(self, mock_sys, monkeypatch):
+    def testget_cache_base_linux(self, mock_sys, monkeypatch):
         monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
-        base = _cache_base()
+        base = get_cache_base()
         assert "ai-operation-manager" in str(base)
 
     @patch("platform.system", return_value="Windows")
-    def test_cache_base_windows(self, mock_sys, monkeypatch):
+    def testget_cache_base_windows(self, mock_sys, monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", "C:\\Users\\test\\AppData\\Local")
-        base = _cache_base()
+        base = get_cache_base()
         assert "ai-operation-manager" in str(base)
 
 
