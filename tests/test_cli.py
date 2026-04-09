@@ -340,3 +340,118 @@ class TestCmdView:
         parser = build_parser()
         args = parser.parse_args(["view", "x", "versions", "--project-dir", "/tmp/proj"])
         assert args.project_dir == Path("/tmp/proj")
+
+
+# ===================================================================
+# Deploy / Undeploy
+# ===================================================================
+
+class TestBuildParserDeploy:
+    def test_deploy_command(self):
+        parser = build_parser()
+        args = parser.parse_args(["deploy"])
+        assert args.command == "deploy"
+
+    def test_undeploy_command(self):
+        parser = build_parser()
+        args = parser.parse_args(["undeploy"])
+        assert args.command == "undeploy"
+
+
+class TestDeployHelpers:
+    def test_get_exe_name_windows(self):
+        from aom.cli import _get_exe_name
+        with patch("aom.cli.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            assert _get_exe_name() == "aom.exe"
+
+    def test_get_exe_name_unix(self):
+        from aom.cli import _get_exe_name
+        with patch("aom.cli.sys") as mock_sys:
+            mock_sys.platform = "linux"
+            assert _get_exe_name() == "aom"
+
+    def test_find_source_exe_not_frozen(self):
+        from aom.cli import _find_source_exe
+        # Running from source — no frozen attr
+        assert _find_source_exe() is None
+
+    def test_find_source_exe_frozen(self):
+        from aom.cli import _find_source_exe
+        with patch("aom.cli.sys") as mock_sys:
+            mock_sys.frozen = True
+            mock_sys.executable = "/usr/local/bin/aom"
+            result = _find_source_exe()
+            assert result == Path("/usr/local/bin/aom")
+
+    def test_get_deploy_dir_windows(self):
+        from aom.cli import _get_deploy_dir
+        with patch("aom.cli.sys") as mock_sys, \
+             patch.dict("os.environ", {"LOCALAPPDATA": "C:\\Users\\test\\AppData\\Local"}):
+            mock_sys.platform = "win32"
+            result = _get_deploy_dir()
+            assert result == Path("C:\\Users\\test\\AppData\\Local\\ai-operation-manager\\bin")
+
+    def test_get_deploy_dir_unix(self):
+        from aom.cli import _get_deploy_dir
+        with patch("aom.cli.sys") as mock_sys, \
+             patch("aom.cli.Path.home", return_value=Path("/home/user")):
+            mock_sys.platform = "linux"
+            result = _get_deploy_dir()
+            assert result == Path("/home/user/.local/bin")
+
+
+class TestCmdDeploy:
+    def test_deploy_not_frozen(self, capsys):
+        """Running from source should fail gracefully."""
+        result = main(["deploy"])
+        assert result == 1
+        out = capsys.readouterr()
+        assert "only available when running from a built executable" in out.out
+
+    @patch("aom.cli._find_source_exe")
+    @patch("aom.cli._get_deploy_dir")
+    @patch("aom.cli._get_exe_name", return_value="aom")
+    @patch("shutil.copy2")
+    @patch("aom.cli._add_to_path_unix", return_value=True)
+    def test_deploy_success_unix(self, mock_add_path, mock_copy, mock_exe_name,
+                                 mock_deploy_dir, mock_source, tmp_path, capsys):
+        source = tmp_path / "aom"
+        source.touch()
+        mock_source.return_value = source
+        target_dir = tmp_path / "deploy"
+        target_dir.mkdir()
+        mock_deploy_dir.return_value = target_dir
+
+        with patch("aom.cli.sys") as mock_sys:
+            mock_sys.platform = "linux"
+            mock_sys.stdout = __import__("sys").stdout
+            mock_sys.stderr = __import__("sys").stderr
+            result = main(["deploy"])
+
+        assert result == 0
+        mock_copy.assert_called_once()
+        out = capsys.readouterr().out
+        assert "Deployed" in out
+
+    def test_undeploy_nothing(self, tmp_path, capsys):
+        with patch("aom.cli._get_deploy_dir", return_value=tmp_path), \
+             patch("aom.cli._get_exe_name", return_value="aom"):
+            result = main(["undeploy"])
+        assert result == 0
+        assert "Nothing to remove" in capsys.readouterr().out
+
+    def test_undeploy_removes_file(self, tmp_path, capsys):
+        target = tmp_path / "aom"
+        target.touch()
+        with patch("aom.cli._get_deploy_dir", return_value=tmp_path), \
+             patch("aom.cli._get_exe_name", return_value="aom"), \
+             patch("aom.cli._remove_from_path_windows", return_value=False), \
+             patch("aom.cli.sys") as mock_sys:
+            mock_sys.platform = "win32"
+            mock_sys.stdout = __import__("sys").stdout
+            mock_sys.stderr = __import__("sys").stderr
+            result = main(["undeploy"])
+        assert result == 0
+        assert not target.exists()
+        assert "Removed" in capsys.readouterr().out

@@ -16,6 +16,8 @@ Commands:
   remove    Uninstall an operation from the local or global scope
   update    Upgrade an operation to the latest available version
   view      View details about an operation (e.g. available versions)
+  deploy    Install the aom binary to a system directory and add it to PATH
+  undeploy  Remove the deployed aom binary and clean up PATH
   env       Display environment configuration and diagnostics
 
 Run `aom <command> --help` for command-specific options and examples.
@@ -24,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import io
 from pathlib import Path
@@ -616,12 +619,210 @@ def cmd_env(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: deploy / undeploy
+# ---------------------------------------------------------------------------
+
+def _get_deploy_dir() -> Path:
+    """Return the platform-specific deployment directory for the aom binary."""
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        return base / "ai-operation-manager" / "bin"
+    else:
+        return Path.home() / ".local" / "bin"
+
+
+def _get_exe_name() -> str:
+    """Return the expected executable name for the current platform."""
+    return "aom.exe" if sys.platform == "win32" else "aom"
+
+
+def _find_source_exe() -> Path | None:
+    """Find the running executable (PyInstaller bundle or None if running from source)."""
+    # PyInstaller sets sys._MEIPASS and frozen attr
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable)
+    return None
+
+
+def _add_to_path_windows(target_dir: Path) -> bool:
+    """Add *target_dir* to the user PATH on Windows. Returns True if modified."""
+    import winreg
+    key = winreg.OpenKey(
+        winreg.HKEY_CURRENT_USER,
+        r"Environment",
+        0,
+        winreg.KEY_READ | winreg.KEY_WRITE,
+    )
+    try:
+        current, _ = winreg.QueryValueEx(key, "PATH")
+    except FileNotFoundError:
+        current = ""
+
+    entries = [e.strip() for e in current.split(";") if e.strip()]
+    target_str = str(target_dir)
+    if any(e.lower() == target_str.lower() for e in entries):
+        return False
+
+    entries.append(target_str)
+    winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ, ";".join(entries))
+    winreg.CloseKey(key)
+
+    # Broadcast WM_SETTINGCHANGE so new terminals pick up the change
+    try:
+        import ctypes
+        HWND_BROADCAST = 0xFFFF
+        WM_SETTINGCHANGE = 0x001A
+        SMTO_ABORTIFHUNG = 0x0002
+        ctypes.windll.user32.SendMessageTimeoutW(
+            HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment", SMTO_ABORTIFHUNG, 5000, None
+        )
+    except Exception:
+        pass
+    return True
+
+
+def _remove_from_path_windows(target_dir: Path) -> bool:
+    """Remove *target_dir* from the user PATH on Windows. Returns True if modified."""
+    import winreg
+    key = winreg.OpenKey(
+        winreg.HKEY_CURRENT_USER,
+        r"Environment",
+        0,
+        winreg.KEY_READ | winreg.KEY_WRITE,
+    )
+    try:
+        current, _ = winreg.QueryValueEx(key, "PATH")
+    except FileNotFoundError:
+        winreg.CloseKey(key)
+        return False
+
+    target_str = str(target_dir).lower()
+    entries = [e.strip() for e in current.split(";") if e.strip()]
+    filtered = [e for e in entries if e.lower() != target_str]
+    if len(filtered) == len(entries):
+        winreg.CloseKey(key)
+        return False
+
+    winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ, ";".join(filtered))
+    winreg.CloseKey(key)
+    return True
+
+
+def _add_to_path_unix(target_dir: Path) -> bool:
+    """Add *target_dir* to shell profile on Linux/macOS. Returns True if modified."""
+    line = f'export PATH="$PATH:{target_dir}"'
+    # Try .bashrc first, then .profile
+    for rc in [Path.home() / ".bashrc", Path.home() / ".profile"]:
+        if rc.exists():
+            content = rc.read_text(encoding="utf-8")
+            if str(target_dir) in content:
+                return False
+            with open(rc, "a", encoding="utf-8") as f:
+                f.write(f"\n# Added by aom deploy\n{line}\n")
+            return True
+    # No profile found — create .profile
+    profile = Path.home() / ".profile"
+    profile.write_text(f"# Added by aom deploy\n{line}\n", encoding="utf-8")
+    return True
+
+
+def cmd_deploy(args: argparse.Namespace) -> int:
+    """Copy the aom binary to a system directory and add it to PATH."""
+    import shutil
+
+    source = _find_source_exe()
+    if source is None:
+        print(red("Error: 'deploy' is only available when running from a built executable."))
+        print("When running from source, use 'pip install .' or 'python -m aom' instead.")
+        return 1
+
+    target_dir = _get_deploy_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / _get_exe_name()
+
+    # Check if file is in use (same path)
+    if target.exists() and target.resolve() == source.resolve():
+        print(yellow("The running executable is already in the deploy location."))
+        print(f"  {target}")
+        return 0
+
+    try:
+        shutil.copy2(str(source), str(target))
+    except PermissionError:
+        print(red(f"Error: Cannot write to {target} — the file may be in use."))
+        print("Close any running aom processes and try again.")
+        return 1
+
+    print(green(f"Deployed {_get_exe_name()} to {target}"))
+
+    # Add to PATH
+    if sys.platform == "win32":
+        added = _add_to_path_windows(target_dir)
+    else:
+        added = _add_to_path_unix(target_dir)
+
+    if added:
+        print(green(f"Added {target_dir} to PATH."))
+        if sys.platform == "win32":
+            print("  New terminal windows will pick up the change automatically.")
+        else:
+            print("  Run 'source ~/.bashrc' or open a new terminal to use 'aom' globally.")
+    else:
+        print(f"  {target_dir} is already on PATH.")
+
+    from . import __version__
+    print()
+    print(f"  aom {__version__} is ready to use globally.")
+    return 0
+
+
+def cmd_undeploy(args: argparse.Namespace) -> int:
+    """Remove the deployed aom binary and clean up PATH."""
+    target_dir = _get_deploy_dir()
+    target = target_dir / _get_exe_name()
+
+    if not target.exists():
+        print(yellow(f"Nothing to remove — {target} does not exist."))
+        return 0
+
+    try:
+        target.unlink()
+        print(green(f"Removed {target}"))
+    except PermissionError:
+        print(red(f"Error: Cannot delete {target} — the file may be in use."))
+        print("Close any running aom processes and try again.")
+        return 1
+
+    # Clean up empty directory
+    try:
+        if target_dir.exists() and not any(target_dir.iterdir()):
+            target_dir.rmdir()
+            print(f"  Removed empty directory {target_dir}")
+    except OSError:
+        pass
+
+    # Remove from PATH
+    if sys.platform == "win32":
+        removed = _remove_from_path_windows(target_dir)
+    else:
+        removed = False  # Leave shell profiles alone to avoid breaking other entries
+
+    if removed:
+        print(green(f"Removed {target_dir} from PATH."))
+
+    print()
+    print("  aom has been undeployed.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Subcommand: init
 # ---------------------------------------------------------------------------
 
 # Known agent config files — includes agents not yet in AGENT_MAP for detection
 _KNOWN_AGENT_FILES = {
     "CLAUDE.md":        "ClaudeCode",
+    ".kiro":            "Kiro",
     ".cursorrules":     "Cursor",
     "opencode.json":    "OpenCode",
     "AGENTS.md":        "Codex",
@@ -644,7 +845,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     found = [
         (filename, agent_name, project_dir / filename)
         for filename, agent_name in _KNOWN_AGENT_FILES.items()
-        if (project_dir / filename).is_file()
+        if (project_dir / filename).exists()
     ]
 
     if not found:
@@ -1124,6 +1325,32 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # -- deploy ---------------------------------------------------------------
+    sub.add_parser(
+        "deploy",
+        help="Install the aom binary to a system directory and add it to PATH",
+        description=(
+            "Copy the running aom executable to a well-known location and\n"
+            "ensure that directory is on the user's PATH.\n\n"
+            "Target locations:\n"
+            "  Windows:  %%LOCALAPPDATA%%\\ai-operation-manager\\bin\n"
+            "  Linux:    ~/.local/bin"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
+    # -- undeploy -------------------------------------------------------------
+    sub.add_parser(
+        "undeploy",
+        help="Remove the deployed aom binary and clean up PATH",
+        description=(
+            "Remove the aom executable from the deployment directory and\n"
+            "remove that directory from the user's PATH (Windows only).\n\n"
+            "This is the inverse of 'aom deploy'."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+
     # -- env ------------------------------------------------------------------
     p_env = sub.add_parser(
         "env",
@@ -1162,15 +1389,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     dispatch = {
-        "init":    cmd_init,
-        "fetch":   cmd_fetch,
-        "install": cmd_install,
-        "list":    cmd_list,
-        "sync":    cmd_sync,
-        "remove":  cmd_remove,
-        "update":  cmd_update,
-        "view":    cmd_view,
-        "env":     cmd_env,
+        "init":     cmd_init,
+        "fetch":    cmd_fetch,
+        "install":  cmd_install,
+        "list":     cmd_list,
+        "sync":     cmd_sync,
+        "remove":   cmd_remove,
+        "update":   cmd_update,
+        "view":     cmd_view,
+        "deploy":   cmd_deploy,
+        "undeploy": cmd_undeploy,
+        "env":      cmd_env,
     }
 
     try:
