@@ -61,6 +61,23 @@ class TestCopy:
         assert (dest / "new.md").exists()
         assert not (dest / "old.md").exists()
 
+    def test_copy_same_path_is_noop(self, tmp_path):
+        """Reinstalling a skill to its own location must not destroy the files."""
+        src = tmp_path / "skill"
+        src.mkdir()
+        (src / "SKILL.md").write_text("content", encoding="utf-8")
+
+        # source and dest are the same path
+        _copy(src, src)
+        assert (src / "SKILL.md").read_text(encoding="utf-8") == "content"
+
+    def test_copy_same_file_is_noop(self, tmp_path):
+        src = tmp_path / "deploy.md"
+        src.write_text("content", encoding="utf-8")
+
+        _copy(src, src)
+        assert src.read_text(encoding="utf-8") == "content"
+
 
 # ===================================================================
 # _destination

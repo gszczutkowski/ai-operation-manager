@@ -191,7 +191,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     local_dir = get_local_dir(args.project_dir)
     local_records = scan_installed(local_dir) if local_dir.exists() else []
 
-    record = resolve(req, repo_records, global_records, local_records)
+    record = resolve(req, repo_records, global_records=[], local_records=[])
 
     if record is None:
         print(red(f"✗ Skill not found: {name}@{version_constraint}"))

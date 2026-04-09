@@ -7,6 +7,7 @@ from unittest.mock import patch
 import pytest
 
 from aom.cli import build_parser, main, _c, _best_version_str, _suggest_similar
+from aom.models import SkillRecord, Version, VersionRequirement
 
 
 # ===================================================================
@@ -174,6 +175,28 @@ class TestCmdInstall:
 
         result = main(["install", "nonexistent-skill"])
         assert result == 1
+
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli.resolve", return_value=None)
+    def test_install_resolves_from_repo_only(self, mock_resolve, mock_local,
+                                             mock_global, mock_scan_inst,
+                                             mock_local_paths,
+                                             mock_git, capsys):
+        """Install should ignore local/global records so it always picks the
+        latest version from the repo, not an already-installed older version."""
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/nonexistent")
+
+        main(["install", "my-skill"])
+
+        mock_resolve.assert_called_once()
+        _, kwargs = mock_resolve.call_args
+        assert kwargs.get("global_records") == []
+        assert kwargs.get("local_records") == []
 
 
 # ===================================================================
