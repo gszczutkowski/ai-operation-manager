@@ -38,21 +38,29 @@ class TestResolve:
         repo = [make_record(name="x", version_str="1.0.0")]
         assert resolve(req, repo, [], []) is None
 
-    def test_local_preferred_over_global(self, make_record):
+    def test_latest_picks_highest_across_scopes(self, make_record):
         req = VersionRequirement("x", "latest")
         local = [make_record(name="x", version_str="1.0.0")]
         global_ = [make_record(name="x", version_str="2.0.0")]
         repo = [make_record(name="x", version_str="3.0.0")]
         result = resolve(req, repo, global_, local)
-        # Local is checked first — should pick the local version
-        assert result.version == parse_version("1.0.0")
+        # "latest" should pick the highest version regardless of scope
+        assert result.version == parse_version("3.0.0")
 
-    def test_global_preferred_over_repo(self, make_record):
+    def test_latest_global_does_not_shadow_repo(self, make_record):
         req = VersionRequirement("x", "latest")
         global_ = [make_record(name="x", version_str="2.0.0")]
         repo = [make_record(name="x", version_str="3.0.0")]
         result = resolve(req, repo, global_, [])
-        assert result.version == parse_version("2.0.0")
+        assert result.version == parse_version("3.0.0")
+
+    def test_exact_local_preferred_over_global(self, make_record):
+        req = VersionRequirement("x", "1.0.0")
+        local = [make_record(name="x", version_str="1.0.0")]
+        global_ = [make_record(name="x", version_str="1.0.0")]
+        result = resolve(req, [], global_, local)
+        # Exact pin: prefer already-installed local copy
+        assert result is local[0]
 
     def test_case_insensitive_name(self, make_record):
         req = VersionRequirement("My-Skill", "latest")

@@ -31,26 +31,34 @@ def resolve(
     """
     Return the best SkillRecord satisfying *requirement*, or None.
 
-    Resolution order:
+    For exact version constraints, resolution follows scope priority:
       1. If a matching version already exists locally → use it (no install needed)
       2. If a matching version exists globally → prefer global
       3. Resolve from repo records
+
+    For open-ended constraints (latest, *, >=), the highest matching version
+    across all scopes is returned so that installed versions never shadow a
+    newer release in the repository.
     """
-    # Filter to matching name across all collections
     name = requirement.name
 
-    # Check local first (already installed, fastest path)
-    local_match = _best_match(requirement, _by_name(local_records, name))
-    if local_match:
-        return local_match
+    if requirement.is_exact():
+        # Exact pin: prefer already-installed copies (scope priority)
+        local_match = _best_match(requirement, _by_name(local_records, name))
+        if local_match:
+            return local_match
+        global_match = _best_match(requirement, _by_name(global_records, name))
+        if global_match:
+            return global_match
+        return _best_match(requirement, _by_name(repo_records, name))
 
-    # Check global
-    global_match = _best_match(requirement, _by_name(global_records, name))
-    if global_match:
-        return global_match
-
-    # Fall back to repo
-    return _best_match(requirement, _by_name(repo_records, name))
+    # Open-ended constraint (latest / * / >=): pick highest across all scopes
+    all_candidates = (
+        _by_name(local_records, name)
+        + _by_name(global_records, name)
+        + _by_name(repo_records, name)
+    )
+    return _best_match(requirement, all_candidates)
 
 
 def resolve_latest(
