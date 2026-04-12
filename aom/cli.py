@@ -780,8 +780,15 @@ def cmd_deploy(args: argparse.Namespace) -> int:
 def _rmtree(path: Path) -> bool:
     """Remove a directory tree. Returns True on success, False on error."""
     import shutil
+    import stat
+
+    def _force_remove_readonly(func, fpath, _exc_info):
+        """Clear read-only flag and retry — needed on Windows for git pack files."""
+        os.chmod(fpath, stat.S_IWRITE)
+        func(fpath)
+
     try:
-        shutil.rmtree(path)
+        shutil.rmtree(path, onerror=_force_remove_readonly)
         return True
     except OSError as exc:
         print(red(f"  Warning: could not fully remove {path}: {exc}"))
