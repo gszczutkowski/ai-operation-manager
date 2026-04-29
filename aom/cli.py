@@ -531,7 +531,12 @@ def _cmd_sync_requirements(args: argparse.Namespace, clean: bool = False) -> int
     if args.dry_run:
         print(yellow("Dry-run complete."))
     elif clean:
-        print(bold(f"Sync clean complete. {total_installed} installed, {total_removed} removed, {total_errors} error(s)."))
+        print(
+            bold(
+                f"Sync clean complete. {total_installed} installed, "
+                f"{total_removed} removed, {total_errors} error(s)."
+            )
+        )
     else:
         print(bold(f"Sync complete. {total_installed} installed, {total_errors} error(s)."))
 
