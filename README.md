@@ -11,6 +11,15 @@ A zero-dependency Python CLI that installs and manages versioned AI skills (slas
 - Different projects can pin different versions of the same skill simultaneously
 - Works with multiple AI agents: Claude Code, Cursor, OpenCode, Codex, Aider
 
+## Branch updates (not yet in `main`)
+
+- Added **Codex support** in runtime configuration (`AGENTS.md` + `.agents/` scope support in code paths).
+- Added **multi-agent project selection** and persistence in `.aom/agents.json`.
+- Extended install/list/sync/remove flows to operate on all selected agents.
+- Added `aom sync agents` mode to sync one selected agent's config/content to other active agents.
+- Improved `aom undeploy --purge` to handle read-only files more reliably on Windows.
+- Added tests covering selected-agent persistence and multi-agent sync flows.
+
 ---
 
 # For Users
@@ -242,7 +251,7 @@ All repository URLs and local paths are stored in the global settings file, mana
 - **repositories** — Remote git repositories (GitHub, GitLab, etc.) containing versioned skills
 - **local_paths** — Local filesystem directories with skill repositories (for development or offline use)
 
-No environment variables are needed. The AI agent is auto-detected from config files in the project directory.
+No environment variables are needed. During `aom init`, you can select one or many active agents for a project; selection is persisted in `.aom/agents.json`.
 
 ### Version constraints
 
@@ -260,28 +269,45 @@ No environment variables are needed. The AI agent is auto-detected from config f
 
 | Command                      | Description                                              |
 | ---------------------------- | -------------------------------------------------------- |
-| `aom init`                   | Interactive setup: detect agent, save repo URL           |
+| `aom init`                   | Interactive setup: detect/select one or many agents, save repo URL |
 | `aom fetch`                  | Refresh the operation index from all remote repositories |
-| `aom install NAME[:VERSION]` | Install a skill (local scope by default)                 |
-| `aom list`                   | Show available and installed versions                    |
-| `aom sync`                   | Install all requirements from the config file            |
+| `aom install NAME[:VERSION]` | Install operation in local/global scope for selected agent(s) |
+| `aom list`                   | Show available and installed versions (aggregated for multiple agents) |
+| `aom sync`                   | Sync modes: `requirements` (default), `agents`, `clean` |
 | `aom update NAME`            | Update a skill to the latest stable version              |
 | `aom view NAME versions`     | List all available versions of an operation              |
-| `aom remove NAME`            | Remove an installed skill                                |
+| `aom remove NAME`            | Remove an installed operation for selected agent(s)      |
 | `aom deploy`                 | Install the aom binary system-wide and add to PATH       |
 | `aom undeploy [--purge]`     | Remove the binary (and optionally all global data)       |
 | `aom env`                    | Show repository and environment configuration            |
 
+### Single-agent vs multi-agent behavior
+
+- `aom` resolves active agents from `.aom/agents.json` (written by `aom init`), then falls back to detected config files (for example `CLAUDE.md`, `AGENTS.md`, `.kiro`).
+- With one active agent, `install`, `list`, `sync`, and `remove` execute only for that one agent's directories:
+  local scope `<project>/<agent-dir>/` and global scope `~/<agent-dir>/` (when `--global` is used).
+- With multiple active agents, `install`, `list`, `sync`, and `remove` run against all selected agents (in their respective local/global directories).
+- `aom env` still prints one active agent view (the first selected), while sync/install/remove/list operate across all selected agents.
+
 ### `aom init`
 
-Interactive setup wizard. Detects AI agent config files in the project directory, asks for remote repository URLs and optional local paths, saves configuration globally, and optionally fetches the tag index.
+Interactive setup wizard. Detects supported AI agent config files in the project directory, lets you select one or multiple active agents, asks for remote repository URLs and optional local paths, saves global settings, and optionally fetches the tag index.
 
 The wizard guides you through:
 
-1. **Agent detection** — finds config files (e.g. `CLAUDE.md`) or lets you choose
+1. **Agent selection** — finds supported config files and lets you choose one or all
 2. **Remote repositories** — one or more git URLs (GitHub, GitLab, etc.)
 3. **Local paths** (optional) — filesystem directories with local skill repos
-4. **Fetch** — downloads the skill tag index from all configured remotes
+4. **Config update** — writes the primary repo URL to each selected agent config file
+5. **Fetch** — downloads the skill tag index from all configured remotes
+
+`aom init` also writes selected agents to `.aom/agents.json`:
+
+```json
+{
+  "agents": ["Codex", "ClaudeCode"]
+}
+```
 
 ### `aom install`
 
@@ -293,7 +319,15 @@ aom install create-jira-story --no-overwrite  # skip if already installed
 aom install create-jira-story --fetch  # refresh tag index first
 ```
 
+Behavior:
+
+- With one selected agent: installs exactly once into that agent's target scope (`local` by default or `global` with `--global`).
+- With multiple selected agents: installs the resolved version for each selected agent and prints scope with agent name, for example `[local:Codex]`, `[local:ClaudeCode]`.
+- Resolution still considers repository records plus installed local/global records for selected agents.
+
 ### `aom list`
+
+Single-agent output:
 
 ```
 SKILL                    LOCAL    GLOBAL   LATEST
@@ -303,17 +337,33 @@ design-workflow          1.0.0    —        1.1.0
 evaluate-skill           —        —        1.0.0
 ```
 
+Multi-agent output behavior:
+
+- `LOCAL`/`GLOBAL` columns are aggregated across selected agents.
+- If selected agents have different installed versions, the chosen displayed version gets a `*` suffix (for example `1.2.0*`).
+- A footnote is printed: `* not all selected agents have the same installed version`.
+- In `--json`, each operation includes `"partial": { "local": bool, "global": bool }`.
+
 Use `--fetch` to pull the latest tags from the remote before listing.
 
 ### `aom sync`
 
 ```bash
-aom sync                      # install from local CLAUDE.md
+aom sync                      # sync requirements for selected agents (default mode)
+aom sync requirements         # explicit default mode
+aom sync agents               # copy one selected agent config/content to others
+aom sync clean                # requirements sync + remove local extras not in config
 aom sync --dry-run            # preview without installing
 aom sync --force              # reinstall even if already installed
 aom sync --fetch              # fetch latest tags before syncing
 aom sync --project-dir /path  # specify project directory
 ```
+
+Mode details:
+
+- `requirements` (default): reads requirements from each selected agent config and installs missing/outdated operations into each agent's local scope.
+- `agents`: interactive copy mode; picks one selected source agent and replicates config + local content + registry to other selected agents.
+- `clean`: same as `requirements`, then removes locally installed operations not present in requirements (per selected agent, skipped on agent-level resolution errors).
 
 ### `aom remove`
 
@@ -321,6 +371,8 @@ aom sync --project-dir /path  # specify project directory
 aom remove create-jira-story          # remove from local scope
 aom remove create-jira-story --global # remove from global scope
 ```
+
+With multiple selected agents, remove is executed for each selected agent in the target scope.
 
 ### `aom update`
 
@@ -402,6 +454,8 @@ Without `--purge`, only the binary and PATH entry are removed. With `--purge`, t
 - **Global settings** — `settings.json` (`~/.config/aom/` or `%APPDATA%\aom\`)
 - **Globally installed operations** — artifact directories and `registry.json` under each agent's global directory (e.g. `~/.claude/skills/`, `~/.claude/commands/`, etc.)
 
+On Windows, purge now handles read-only files/directories during cleanup.
+
 ### `aom env`
 
 ```
@@ -442,10 +496,12 @@ Use `--check` to exit with code 1 if no repositories are configured.
 
 | Scope  | Location             | Use case                                |
 | ------ | -------------------- | --------------------------------------- |
-| Local  | `<project>/.claude/` | Project-specific, pinned via `aom sync` |
-| Global | `~/.claude/`         | Available in all projects               |
+| Local  | `<project>/<agent-dir>/` | Project-specific, pinned via `aom sync` |
+| Global | `~/<agent-dir>/`         | Available in all projects               |
 
 Local takes precedence over global when both are installed.
+
+Examples of `<agent-dir>`: `.claude`, `.agents`, `.kiro`.
 
 | Scope                | Installed version |
 | -------------------- | ----------------- |
@@ -458,7 +514,7 @@ Local takes precedence over global when both are installed.
 
 ## Supported AI Agents
 
-The tool detects the active agent automatically from config files in the project directory. No environment variables required after `aom init`.
+The tool detects supported agents from config files in the project directory and can persist selected active agents via `.aom/agents.json` after `aom init`.
 
 | Config file       | Agent      | Status    |
 | ----------------- | ---------- | --------- |
@@ -466,7 +522,7 @@ The tool detects the active agent automatically from config files in the project
 | `.kiro`           | Kiro       | Supported |
 | `.cursorrules`    | Cursor     | Planned   |
 | `opencode.json`   | OpenCode   | Planned   |
-| `AGENTS.md`       | Codex      | Planned   |
+| `AGENTS.md`       | Codex      | Supported |
 | `.aider.conf.yml` | Aider      | Planned   |
 
 If multiple config files are found, the wizard asks which to use.
@@ -571,8 +627,8 @@ flowchart TD
     resolver --> installer
 
     subgraph "Installation Targets"
-        local_scope["Local Scope\n&lt;project&gt;/.claude/"]
-        global_scope["Global Scope\n~/.claude/"]
+        local_scope["Local Scope\n&lt;project&gt;/&lt;agent-dir&gt;/"]
+        global_scope["Global Scope\n~/&lt;agent-dir&gt;/"]
     end
 
     installer --> local_scope
@@ -586,8 +642,8 @@ flowchart TD
 ### Resolution priority
 
 ```
-1. Local (<project>/.claude/)  — already installed in this project
-2. Global (~/.claude/)         — available system-wide
+1. Local (<project>/<agent-dir>/)  — already installed in this project
+2. Global (~/<agent-dir>/)         — available system-wide
 3. Repository (remote git)     — source of truth
 ```
 
@@ -660,16 +716,13 @@ Stored inside the agent directory (`registry.json`):
 
 ### AI agent detection
 
-The active agent is resolved via:
+Active agents are resolved via:
 
-1. In-process cache (already resolved this session)
-2. Config file detected in CWD (`CLAUDE.md` → `ClaudeCode`)
-3. Auto-select when only one agent is defined
-4. Interactive prompt
+1. `.aom/agents.json` selected list (written by `aom init`)
+2. Supported config files detected in project dir (`AGENTS.md`, `CLAUDE.md`, `.kiro`, ...)
+3. Single-agent fallback selection behavior when needed
 
-`aom init` writes the config file, so after initialization the agent is detected automatically.
-
-**Type directory mapping** — for ClaudeCode, grimoire `skills/` and `commands/` both install into the agent's `commands/` directory. A skill named `create-jira-story` installs to `~/.claude/commands/create-jira-story/`.
+**Type directory mapping** — each agent maps artifact types (`skills`, `commands`, `agents`, `hooks`) to its own subdirectories. Example: for Codex local scope is `<project>/.agents/...`, for ClaudeCode `<project>/.claude/...`.
 
 ---
 
