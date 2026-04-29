@@ -33,6 +33,7 @@ def install(
     registry: Registry,
     overwrite: bool = True,
     git_repo: GitRepo | None = None,
+    agent: str | None = None,
 ) -> Path:
     """
     Install *record* into *install_dir*/<artifact_type>/ and update *registry*.
@@ -44,13 +45,13 @@ def install(
     Returns the destination path.
     """
     if record.git_tag and git_repo is not None:
-        dest = _install_from_git(record, install_dir, git_repo, overwrite)
+        dest = _install_from_git(record, install_dir, git_repo, overwrite, agent=agent)
     else:
         if record.path is None:
             raise RuntimeError(
                 f"Cannot install {record.name}: no local path and no git_repo provided."
             )
-        dest = _destination(record, install_dir)
+        dest = _destination(record, install_dir, agent=agent)
         if dest.exists() and not overwrite:
             return dest
         _copy(record.path, dest)
@@ -67,9 +68,10 @@ def _install_from_git(
     install_dir: Path,
     git_repo: GitRepo,
     overwrite: bool,
+    agent: str | None = None,
 ) -> Path:
     """Extract a git-backed skill from the local clone into *install_dir*."""
-    type_dir = install_dir / get_type_subdir(record.artifact_type)
+    type_dir = install_dir / get_type_subdir(record.artifact_type, agent=agent)
     tag = record.git_tag
 
     # Try directory layout first (e.g. skills/create-jira-story/)
@@ -105,6 +107,7 @@ def uninstall(
     name: str,
     install_dir: Path,
     registry: Registry,
+    agent: str | None = None,
 ) -> bool:
     """
     Remove a skill from *install_dir* and from *registry*.
@@ -113,7 +116,7 @@ def uninstall(
     """
     full_name = f"{artifact_type}/{name}"
     # Resolve the agent-specific subdir (e.g. "skills" → "skills" for ClaudeCode)
-    type_dir = install_dir / get_type_subdir(artifact_type)
+    type_dir = install_dir / get_type_subdir(artifact_type, agent=agent)
 
     removed = False
 
@@ -142,7 +145,7 @@ def uninstall(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _destination(record: SkillRecord, install_dir: Path) -> Path:
+def _destination(record: SkillRecord, install_dir: Path, agent: str | None = None) -> Path:
     """Compute the destination path for *record* inside *install_dir*.
 
     The subdirectory name is agent-specific (e.g. ClaudeCode maps
@@ -152,7 +155,7 @@ def _destination(record: SkillRecord, install_dir: Path) -> Path:
         raise RuntimeError(
             f"Cannot compute destination for {record.name}: no local path"
         )
-    type_dir = install_dir / get_type_subdir(record.artifact_type)
+    type_dir = install_dir / get_type_subdir(record.artifact_type, agent=agent)
 
     if record.path.is_dir():
         # Module layout: keep the directory structure

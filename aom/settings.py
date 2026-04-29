@@ -59,7 +59,14 @@ def get_settings_path() -> Path:
 
 def _load_raw() -> dict:
     path = get_settings_path()
-    if not path.is_file():
+    try:
+        if not path.is_file():
+            return {"version": _SCHEMA_VERSION, "repositories": [], "local_paths": []}
+    except OSError as exc:
+        print(
+            f"Warning: cannot access settings at {path}, using defaults: {exc}",
+            file=sys.stderr,
+        )
         return {"version": _SCHEMA_VERSION, "repositories": [], "local_paths": []}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))

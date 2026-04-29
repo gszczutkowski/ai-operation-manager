@@ -15,6 +15,9 @@ from aom.config import (
     get_local_registry,
     ensure_global_dir,
     ensure_local_dir,
+    get_selected_agents,
+    read_selected_agents,
+    write_selected_agents,
 )
 
 
@@ -144,3 +147,10 @@ class TestEnsureDirs:
         ensure_local_dir(tmp_path)
         assert (tmp_path / ".claude").is_dir()
         assert (tmp_path / ".claude" / "commands").is_dir()
+
+
+class TestSelectedAgents:
+    def test_write_and_read_selected_agents(self, tmp_path):
+        write_selected_agents(["Codex", "ClaudeCode"], project_dir=tmp_path)
+        assert read_selected_agents(tmp_path) == ["Codex", "ClaudeCode"]
+        assert get_selected_agents(tmp_path) == ["Codex", "ClaudeCode"]

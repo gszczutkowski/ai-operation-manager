@@ -29,11 +29,14 @@ import json
 import os
 import sys
 import io
+import shutil
 from pathlib import Path
 from .config import (
     AGENT_MAP,
     ARTIFACT_TYPES,
+    detect_supported_agents,
     ensure_global_dir,
+    get_agent,
     ensure_local_dir,
     get_config_file,
     get_global_dir,
@@ -42,11 +45,14 @@ from .config import (
     get_local_registry,
     get_local_paths,
     get_repo_urls,
+    get_type_subdir,
+    read_selected_agents,
+    write_selected_agents,
 )
 from .discovery import scan_git_repository, scan_installed, scan_repository
 from .git import GitRepo, get_cache_base
 from .installer import install, uninstall
-from .manifest import parse_manifest, parse_repo_url, write_repo_url
+from .manifest import parse_manifest, parse_repo_url, write_manifest, write_repo_url
 from .models import SkillRecord, VersionRequirement, parse_version
 from .registry import Registry
 from .resolver import resolve, resolve_all, resolve_latest
@@ -135,6 +141,21 @@ def _find_git_repo_for_record(record: SkillRecord, git_repos: list[GitRepo]) -> 
     return git_repos[0] if git_repos else None
 
 
+def _active_agents(project_dir: Path | None = None) -> list[str]:
+    """Return active project agents (at least one)."""
+    selected = read_selected_agents(project_dir)
+    if selected:
+        return selected
+    detected = detect_supported_agents(project_dir)
+    if len(detected) == 1:
+        return detected
+    if len(detected) > 1:
+        # No explicit aom multi-agent selection yet: preserve single-agent default behavior.
+        return [detected[0]]
+    # Final fallback preserves legacy single-agent selection behavior.
+    return [get_agent(project_dir)]
+
+
 # ---------------------------------------------------------------------------
 # Subcommand: fetch
 # ---------------------------------------------------------------------------
@@ -173,7 +194,9 @@ def cmd_fetch(args: argparse.Namespace) -> int:
 
 def cmd_install(args: argparse.Namespace) -> int:
     """Install a skill into the global or local scope."""
-    git_repos = _get_git_repos(args.project_dir)
+    project_dir = (args.project_dir or Path.cwd()).resolve()
+    agents = _active_agents(project_dir)
+    git_repos = _get_git_repos(project_dir)
     _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
 
     # Parse "name:version" or "name"
@@ -186,10 +209,15 @@ def cmd_install(args: argparse.Namespace) -> int:
     repo_records = _get_repo_records(git_repos)
     req = VersionRequirement(name=name, constraint=version_constraint)
 
-    global_dir = get_global_dir()
-    global_installed = scan_installed(global_dir) if global_dir.exists() else []
-    local_dir = get_local_dir(args.project_dir)
-    local_installed = scan_installed(local_dir) if local_dir.exists() else []
+    global_installed: list[SkillRecord] = []
+    local_installed: list[SkillRecord] = []
+    for agent in agents:
+        global_dir = get_global_dir(agent=agent, project_dir=project_dir)
+        local_dir = get_local_dir(project_dir, agent=agent)
+        if global_dir.exists():
+            global_installed.extend(scan_installed(global_dir))
+        if local_dir.exists():
+            local_installed.extend(scan_installed(local_dir))
 
     record = resolve(req, repo_records, global_records=global_installed, local_records=local_installed)
 
@@ -200,22 +228,35 @@ def cmd_install(args: argparse.Namespace) -> int:
             print(dim("  Tip: run with --fetch to refresh the tag index from the remote."))
         return 1
 
-    if args.global_:
-        scope_label = "global"
-        ensure_global_dir()
-        target_dir = get_global_dir()
-        registry = Registry(get_global_registry())
-    else:
-        scope_label = "local"
-        project_dir = args.project_dir
-        ensure_local_dir(project_dir)
-        target_dir = get_local_dir(project_dir)
-        registry = Registry(get_local_registry(project_dir))
-
     git_repo = _find_git_repo_for_record(record, git_repos)
-    dest = install(record, target_dir, registry, overwrite=not args.no_overwrite, git_repo=git_repo)
     v = record.version.raw if record.version else "unknown"
-    print(green(f"✓ Installed {record.name}@{v} [{scope_label}] → {dest}"))
+    scope_label = "global" if args.global_ else "local"
+
+    installed_count = 0
+    for agent in agents:
+        if args.global_:
+            ensure_global_dir(agent=agent, project_dir=project_dir)
+            target_dir = get_global_dir(agent=agent, project_dir=project_dir)
+            registry = Registry(get_global_registry(agent=agent, project_dir=project_dir))
+        else:
+            ensure_local_dir(project_dir, agent=agent)
+            target_dir = get_local_dir(project_dir, agent=agent)
+            registry = Registry(get_local_registry(project_dir, agent=agent))
+
+        dest = install(
+            record,
+            target_dir,
+            registry,
+            overwrite=not args.no_overwrite,
+            git_repo=git_repo,
+            agent=agent,
+        )
+        installed_count += 1
+        print(green(f"✓ Installed {record.name}@{v} [{scope_label}:{agent}] → {dest}"))
+
+    if installed_count > 1:
+        print()
+        print(bold(f"Installed for {installed_count} agents."))
     return 0
 
 
@@ -225,14 +266,22 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 def cmd_list(args: argparse.Namespace) -> int:
     """List all known skills with their installed and available versions."""
-    git_repos = _get_git_repos(args.project_dir)
+    project_dir = (args.project_dir or Path.cwd()).resolve()
+    agents = _active_agents(project_dir)
+    git_repos = _get_git_repos(project_dir)
     _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
 
     repo_records = _get_repo_records(git_repos)
-    global_dir = get_global_dir()
-    global_records = scan_installed(global_dir) if global_dir.exists() else []
-    local_dir = get_local_dir(args.project_dir)
-    local_records = scan_installed(local_dir) if local_dir.exists() else []
+    global_by_agent: dict[str, list[SkillRecord]] = {}
+    local_by_agent: dict[str, list[SkillRecord]] = {}
+    for agent in agents:
+        global_dir = get_global_dir(agent=agent, project_dir=project_dir)
+        local_dir = get_local_dir(project_dir, agent=agent)
+        global_by_agent[agent] = scan_installed(global_dir) if global_dir.exists() else []
+        local_by_agent[agent] = scan_installed(local_dir) if local_dir.exists() else []
+
+    global_records = [r for records in global_by_agent.values() for r in records]
+    local_records = [r for records in local_by_agent.values() for r in records]
 
     # Collect all unique names across all sources
     all_names: set[str] = set()
@@ -245,9 +294,25 @@ def cmd_list(args: argparse.Namespace) -> int:
         return 0
 
     if args.json:
-        return _list_json(sorted(all_names), repo_records, global_records, local_records)
+        return _list_json(
+            sorted(all_names),
+            repo_records,
+            global_records,
+            local_records,
+            agents=agents,
+            global_by_agent=global_by_agent,
+            local_by_agent=local_by_agent,
+        )
 
-    return _list_table(sorted(all_names), repo_records, global_records, local_records)
+    return _list_table(
+        sorted(all_names),
+        repo_records,
+        global_records,
+        local_records,
+        agents=agents,
+        global_by_agent=global_by_agent,
+        local_by_agent=local_by_agent,
+    )
 
 
 def _list_table(
@@ -255,6 +320,9 @@ def _list_table(
     repo_records: list[SkillRecord],
     global_records: list[SkillRecord],
     local_records: list[SkillRecord],
+    agents: list[str] | None = None,
+    global_by_agent: dict[str, list[SkillRecord]] | None = None,
+    local_by_agent: dict[str, list[SkillRecord]] | None = None,
 ) -> int:
     col_w = max(len(n) for n in names) + 2
 
@@ -262,10 +330,19 @@ def _list_table(
     print(bold(f"{'SKILL':<{col_w}}  {'LOCAL':<12}  {'GLOBAL':<12}  {'LATEST'}"))
     print("-" * (col_w + 42))
 
+    has_partial = False
+
     for name in names:
         local_v = _best_version_str(name, local_records)
         global_v = _best_version_str(name, global_records)
+        local_partial = False
+        global_partial = False
+        if agents and len(agents) > 1 and local_by_agent:
+            local_v, local_partial = _aggregate_agent_versions(name, agents, local_by_agent)
+        if agents and len(agents) > 1 and global_by_agent:
+            global_v, global_partial = _aggregate_agent_versions(name, agents, global_by_agent)
         latest_v = _best_version_str(name, repo_records, stable_only=True)
+        has_partial = has_partial or local_partial or global_partial
 
         local_d = green(f"{local_v:<12}") if local_v != "—" else dim(f"{'—':<12}")
         global_d = yellow(f"{global_v:<12}") if global_v != "—" else dim(f"{'—':<12}")
@@ -274,6 +351,9 @@ def _list_table(
         print(f"{name:<{col_w}}  {local_d}  {global_d}  {latest_d}")
 
     print()
+    if has_partial:
+        print(dim("* not all selected agents have the same installed version"))
+        print()
     return 0
 
 
@@ -282,16 +362,53 @@ def _list_json(
     repo_records: list[SkillRecord],
     global_records: list[SkillRecord],
     local_records: list[SkillRecord],
+    agents: list[str] | None = None,
+    global_by_agent: dict[str, list[SkillRecord]] | None = None,
+    local_by_agent: dict[str, list[SkillRecord]] | None = None,
 ) -> int:
     out = {}
     for name in names:
+        local_v = _best_version_str(name, local_records)
+        global_v = _best_version_str(name, global_records)
+        partial = {"local": False, "global": False}
+        if agents and len(agents) > 1 and local_by_agent:
+            local_v, partial["local"] = _aggregate_agent_versions(name, agents, local_by_agent)
+        if agents and len(agents) > 1 and global_by_agent:
+            global_v, partial["global"] = _aggregate_agent_versions(name, agents, global_by_agent)
         out[name] = {
-            "local": _best_version_str(name, local_records),
-            "global": _best_version_str(name, global_records),
+            "local": local_v,
+            "global": global_v,
             "latest": _best_version_str(name, repo_records, stable_only=True),
+            "partial": partial,
         }
     print(json.dumps(out, indent=2))
     return 0
+
+
+def _aggregate_agent_versions(
+    name: str,
+    agents: list[str],
+    records_by_agent: dict[str, list[SkillRecord]],
+) -> tuple[str, bool]:
+    per_agent = {agent: _best_version_str(name, records_by_agent.get(agent, [])) for agent in agents}
+    installed = [v for v in per_agent.values() if v != "—"]
+    if not installed:
+        return "—", False
+    parsed: list[tuple[object, str]] = []
+    fallback: list[str] = []
+    for value in set(installed):
+        version = parse_version(value)
+        if version is None:
+            fallback.append(value)
+        else:
+            parsed.append((version, value))
+    if parsed:
+        parsed.sort(key=lambda item: item[0])
+        chosen = parsed[-1][1]
+    else:
+        chosen = sorted(fallback)[-1]
+    partial = len(set(per_agent.values())) > 1
+    return (f"{chosen}*" if partial else chosen), partial
 
 
 def _best_version_str(
@@ -310,67 +427,188 @@ def _best_version_str(
 # ---------------------------------------------------------------------------
 
 def cmd_sync(args: argparse.Namespace) -> int:
-    """Sync skills from the agent's project config file (e.g. CLAUDE.md)."""
-    project_dir = args.project_dir or Path.cwd()
-    manifest_path = Path(project_dir) / get_config_file()
+    """Sync operations according to sync mode."""
+    mode = getattr(args, "sync_command", None) or "requirements"
+    if mode == "agents":
+        return _cmd_sync_agents(args)
+    if mode == "clean":
+        return _cmd_sync_requirements(args, clean=True)
+    return _cmd_sync_requirements(args, clean=False)
 
-    requirements = parse_manifest(manifest_path)
-    if not requirements:
-        print(yellow(f"No skills requirements found in {manifest_path.name}"))
-        print(dim(f"  Looked in: {manifest_path}"))
-        print(dim("  Add a '## Skills Requirements' section with a YAML block."))
-        return 0
+
+def _cmd_sync_requirements(args: argparse.Namespace, clean: bool = False) -> int:
+    """Sync required operations from config files for active agents."""
+    project_dir = (args.project_dir or Path.cwd()).resolve()
+    agents = _active_agents(project_dir)
 
     git_repos = _get_git_repos(project_dir)
     _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
-
     repo_records = _get_repo_records(git_repos)
-    global_dir = get_global_dir()
-    global_records = scan_installed(global_dir) if global_dir.exists() else []
 
-    ensure_local_dir(project_dir)
-    local_dir = get_local_dir(project_dir)
-    local_records = scan_installed(local_dir) if local_dir.exists() else []
-    local_registry = Registry(get_local_registry(project_dir))
+    total_errors = 0
+    total_installed = 0
+    total_removed = 0
 
-    resolved = resolve_all(requirements, repo_records, global_records, local_records)
+    for agent in agents:
+        manifest_path = project_dir / get_config_file(agent=agent, project_dir=project_dir)
+        requirements = parse_manifest(manifest_path)
 
-    errors = 0
-    installed_count = 0
-
-    for req in requirements:
-        record = resolved.get(req.name)
-        if record is None:
-            print(red(f"✗ {req.name}: not found (constraint: {req.constraint})"))
-            if git_repos and not getattr(args, "fetch", False):
-                print(dim("    Tip: run with --fetch to refresh the tag index from the remote."))
-            errors += 1
+        if not requirements and not clean:
+            print(yellow(f"No skills requirements found in {manifest_path.name} [{agent}]"))
+            print(dim(f"  Looked in: {manifest_path}"))
+            print(dim("  Add a '## Skills Requirements' section with a YAML block."))
             continue
 
-        v = record.version.raw if record.version else "unknown"
+        global_dir = get_global_dir(agent=agent, project_dir=project_dir)
+        global_records = scan_installed(global_dir) if global_dir.exists() else []
 
-        # Already installed locally at the right version?
-        already = local_registry.get_version(record.full_name)
-        if already == v and not args.force:
-            print(dim(f"  {req.name}@{v} — already installed, skipping"))
-            continue
+        ensure_local_dir(project_dir, agent=agent)
+        local_dir = get_local_dir(project_dir, agent=agent)
+        local_records = scan_installed(local_dir) if local_dir.exists() else []
+        local_registry = Registry(get_local_registry(project_dir, agent=agent))
 
-        if args.dry_run:
-            print(f"  {req.name}@{v} — would install (dry-run)")
-            continue
+        resolved = resolve_all(requirements, repo_records, global_records, local_records)
+        keep_full_names: set[str] = set()
+        agent_errors = 0
 
-        git_repo = _find_git_repo_for_record(record, git_repos)
-        dest = install(record, local_dir, local_registry, overwrite=True, git_repo=git_repo)
-        print(green(f"✓ {req.name}@{v} → {dest}"))
-        installed_count += 1
+        for req in requirements:
+            record = resolved.get(req.name)
+            if record is None:
+                print(red(f"✗ {req.name}: not found (constraint: {req.constraint}) [{agent}]"))
+                if git_repos and not getattr(args, "fetch", False):
+                    print(dim("    Tip: run with --fetch to refresh the tag index from the remote."))
+                total_errors += 1
+                agent_errors += 1
+                continue
+
+            keep_full_names.add(record.full_name)
+            v = record.version.raw if record.version else "unknown"
+            already = local_registry.get_version(record.full_name)
+
+            if already == v and not args.force:
+                print(dim(f"  {req.name}@{v} [{agent}] — already installed, skipping"))
+                continue
+
+            if args.dry_run:
+                print(f"  {req.name}@{v} [{agent}] — would install (dry-run)")
+                continue
+
+            git_repo = _find_git_repo_for_record(record, git_repos)
+            dest = install(
+                record,
+                local_dir,
+                local_registry,
+                overwrite=True,
+                git_repo=git_repo,
+                agent=agent,
+            )
+            print(green(f"✓ {req.name}@{v} [{agent}] → {dest}"))
+            total_installed += 1
+
+        if clean and not args.dry_run:
+            if agent_errors:
+                print(yellow(f"  Skipping clean for {agent} due to resolution errors."))
+            else:
+                installed = local_registry.all_installed()
+                for full_name in sorted(installed.keys()):
+                    if full_name in keep_full_names:
+                        continue
+                    if "/" not in full_name:
+                        continue
+                    artifact_type, name = full_name.split("/", 1)
+                    removed = uninstall(
+                        artifact_type,
+                        name,
+                        local_dir,
+                        local_registry,
+                        agent=agent,
+                    )
+                    if removed:
+                        print(yellow(f"− Removed {full_name} [{agent}] (not in config)"))
+                        total_removed += 1
 
     print()
     if args.dry_run:
-        print(yellow(f"Dry-run complete. {len(requirements)} requirement(s) checked."))
+        print(yellow("Dry-run complete."))
+    elif clean:
+        print(bold(f"Sync clean complete. {total_installed} installed, {total_removed} removed, {total_errors} error(s)."))
     else:
-        print(bold(f"Sync complete. {installed_count} installed, {errors} error(s)."))
+        print(bold(f"Sync complete. {total_installed} installed, {total_errors} error(s)."))
 
-    return 0 if errors == 0 else 1
+    return 0 if total_errors == 0 else 1
+
+
+def _cmd_sync_agents(args: argparse.Namespace) -> int:
+    """Sync one selected agent configuration and content to other active agents."""
+    project_dir = (args.project_dir or Path.cwd()).resolve()
+    agents = _active_agents(project_dir)
+    if len(agents) < 2:
+        print(yellow("Only one active agent detected. Nothing to sync."))
+        return 0
+
+    print()
+    print("Select source agent for sync:")
+    for i, agent in enumerate(agents, 1):
+        cfg = get_config_file(agent=agent, project_dir=project_dir)
+        print(f"  [{i}] {agent:<12} ({cfg})")
+    print()
+
+    source_agent: str | None = None
+    while source_agent is None:
+        choice = input(f"Source agent (1-{len(agents)} or name): ").strip()
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(agents):
+                source_agent = agents[idx]
+                break
+        elif choice in agents:
+            source_agent = choice
+            break
+        print("  Invalid selection.", file=sys.stderr)
+
+    source_cfg = project_dir / get_config_file(agent=source_agent, project_dir=project_dir)
+    requirements = parse_manifest(source_cfg)
+    source_url = parse_repo_url(source_cfg)
+
+    source_dir = get_local_dir(project_dir, agent=source_agent)
+    source_registry = get_local_registry(project_dir, agent=source_agent)
+
+    synced = 0
+    for target_agent in agents:
+        if target_agent == source_agent:
+            continue
+
+        target_cfg = project_dir / get_config_file(agent=target_agent, project_dir=project_dir)
+        if requirements:
+            write_manifest(target_cfg, requirements)
+        if source_url:
+            write_repo_url(target_cfg, source_url)
+
+        ensure_local_dir(project_dir, agent=target_agent)
+        target_dir = get_local_dir(project_dir, agent=target_agent)
+
+        for artifact_type in ARTIFACT_TYPES:
+            src_sub = source_dir / get_type_subdir(artifact_type, agent=source_agent, project_dir=project_dir)
+            dst_sub = target_dir / get_type_subdir(artifact_type, agent=target_agent, project_dir=project_dir)
+            if dst_sub.exists():
+                _rmtree(dst_sub)
+            if src_sub.exists():
+                shutil.copytree(src_sub, dst_sub)
+            else:
+                dst_sub.mkdir(parents=True, exist_ok=True)
+
+        target_registry = get_local_registry(project_dir, agent=target_agent)
+        if source_registry.exists():
+            shutil.copy2(source_registry, target_registry)
+        elif target_registry.exists():
+            target_registry.unlink(missing_ok=True)
+
+        print(green(f"✓ Synced {source_agent} -> {target_agent}"))
+        synced += 1
+
+    print()
+    print(bold(f"Agent sync complete. {synced} target(s) updated."))
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -381,23 +619,27 @@ def cmd_remove(args: argparse.Namespace) -> int:
     """Remove a skill from global or local scope."""
     name = args.name
     artifact_type = args.type or "skills"
+    project_dir = (args.project_dir or Path.cwd()).resolve()
+    agents = _active_agents(project_dir)
+    scope_label = "global" if args.global_ else "local"
 
-    if args.global_:
-        scope_label = "global"
-        target_dir = get_global_dir()
-        registry = Registry(get_global_registry())
-    else:
-        scope_label = "local"
-        target_dir = get_local_dir(args.project_dir)
-        registry = Registry(get_local_registry(args.project_dir))
+    removed_any = False
+    for agent in agents:
+        if args.global_:
+            target_dir = get_global_dir(agent=agent, project_dir=project_dir)
+            registry = Registry(get_global_registry(agent=agent, project_dir=project_dir))
+        else:
+            target_dir = get_local_dir(project_dir, agent=agent)
+            registry = Registry(get_local_registry(project_dir, agent=agent))
 
-    removed = uninstall(artifact_type, name, target_dir, registry)
-    if removed:
-        print(green(f"✓ Removed {name} [{scope_label}]"))
-        return 0
-    else:
-        print(yellow(f"  {name} was not installed [{scope_label}]"))
-        return 0
+        removed = uninstall(artifact_type, name, target_dir, registry, agent=agent)
+        if removed:
+            print(green(f"✓ Removed {name} [{scope_label}:{agent}]"))
+            removed_any = True
+        else:
+            print(yellow(f"  {name} was not installed [{scope_label}:{agent}]"))
+
+    return 0 if removed_any else 0
 
 
 # ---------------------------------------------------------------------------
@@ -886,15 +1128,8 @@ def cmd_undeploy(args: argparse.Namespace) -> int:
 # Subcommand: init
 # ---------------------------------------------------------------------------
 
-# Known agent config files — includes agents not yet in AGENT_MAP for detection
-_KNOWN_AGENT_FILES = {
-    "CLAUDE.md":        "ClaudeCode",
-    ".kiro":            "Kiro",
-    ".cursorrules":     "Cursor",
-    "opencode.json":    "OpenCode",
-    "AGENTS.md":        "Codex",
-    ".aider.conf.yml":  "Aider",
-}
+# Known agent config files (supported only)
+_KNOWN_AGENT_FILES = {cfg["config_file"]: agent for agent, cfg in AGENT_MAP.items()}
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -908,54 +1143,53 @@ def cmd_init(args: argparse.Namespace) -> int:
     print(f"  Directory: {project_dir}")
     print()
 
-    # ---- Step 1: find config files in the project directory ----
-    found = [
-        (filename, agent_name, project_dir / filename)
-        for filename, agent_name in _KNOWN_AGENT_FILES.items()
-        if (project_dir / filename).exists()
-    ]
+    # ---- Step 1: choose one or all agents for this project ----
+    found_agents = detect_supported_agents(project_dir)
+    selected_agents: list[str]
 
-    if not found:
-        print(yellow("No AI agent config files found in this directory."))
+    if not found_agents:
+        print(yellow("No supported AI agent config files found in this directory."))
         print()
-        print("Select an agent to initialize:")
-        agents = list(_KNOWN_AGENT_FILES.items())
-        for i, (filename, name) in enumerate(agents, 1):
-            print(f"  [{i}] {name:<20}  ({filename})")
-        print()
-        while True:
-            choice = input(f"Agent (1-{len(agents)}): ").strip()
-            if choice.isdigit():
-                idx = int(choice) - 1
-                if 0 <= idx < len(agents):
-                    filename, agent_name = agents[idx]
-                    config_path = project_dir / filename
-                    break
-            print("  Invalid selection.", file=sys.stderr)
-    elif len(found) == 1:
-        filename, agent_name, config_path = found[0]
-        print(f"Found: {bold(filename)}  →  {agent_name}")
-        ans = input("Use this config file? [Y/n]: ").strip().lower()
+        selected_agents = _prompt_agent_selection(list(AGENT_MAP.keys()), prompt_label="agent")
+    elif len(found_agents) == 1:
+        only = found_agents[0]
+        cfg = AGENT_MAP[only]["config_file"]
+        print(f"Found: {bold(cfg)}  ->  {only}")
+        ans = input("Use this agent? [Y/n]: ").strip().lower()
         if ans == "n":
-            print("Aborted.")
-            return 0
+            selected_agents = _prompt_agent_selection(list(AGENT_MAP.keys()), prompt_label="agent")
+        else:
+            selected_agents = [only]
     else:
-        print("Found multiple AI agent config files:")
-        for i, (filename, agent_name, _) in enumerate(found, 1):
-            print(f"  [{i}] {filename:<25}  →  {agent_name}")
+        print("Found multiple supported AI agents:")
+        for i, agent in enumerate(found_agents, 1):
+            cfg = AGENT_MAP[agent]["config_file"]
+            print(f"  [{i}] {agent:<12} ({cfg})")
+        print("  [a] all")
         print()
         while True:
-            choice = input(f"Select config file (1-{len(found)}): ").strip()
+            choice = input(f"Select agent (1-{len(found_agents)}), name, or 'a': ").strip()
+            if choice.lower() == "a":
+                selected_agents = list(found_agents)
+                break
             if choice.isdigit():
                 idx = int(choice) - 1
-                if 0 <= idx < len(found):
-                    filename, agent_name, config_path = found[idx]
+                if 0 <= idx < len(found_agents):
+                    selected_agents = [found_agents[idx]]
                     break
+            elif choice in found_agents:
+                selected_agents = [choice]
+                break
             print("  Invalid selection.", file=sys.stderr)
+
+    write_selected_agents(selected_agents, project_dir=project_dir)
 
     print()
-    print(f"  Agent:       {bold(agent_name)}")
-    print(f"  Config file: {config_path}")
+    print(f"  Agents: {bold(', '.join(selected_agents))}")
+    print("  Config files:")
+    for agent in selected_agents:
+        cfg = AGENT_MAP[agent]["config_file"]
+        print(f"    {cfg}")
     print()
 
     # ---- Step 2: configure repository URLs (global settings) ----
@@ -1024,14 +1258,16 @@ def cmd_init(args: argparse.Namespace) -> int:
             print(dim("  Skipped."))
             print()
 
-    # ---- Step 4: write primary URL to project config (backward compat) ----
+    # ---- Step 4: write primary URL to each selected project config ----
     if saved_urls:
         primary_url = saved_urls[0]
-        existing_url = parse_repo_url(config_path)
-        if existing_url != primary_url:
-            write_repo_url(config_path, primary_url)
-            print(green(f"✓ Primary repository URL saved to {config_path.name}"))
-            print()
+        for agent in selected_agents:
+            config_path = project_dir / AGENT_MAP[agent]["config_file"]
+            existing_url = parse_repo_url(config_path)
+            if existing_url != primary_url:
+                write_repo_url(config_path, primary_url)
+                print(green(f"✓ Primary repository URL saved to {config_path.name} [{agent}]"))
+        print()
 
     # ---- Step 5: offer to fetch the tag index from all repos ----
     if saved_urls:
@@ -1067,8 +1303,33 @@ def cmd_init(args: argparse.Namespace) -> int:
     print("  aom list            — view available skills")
     print("  aom install NAME    — install a skill")
     print("  aom sync            — install all required skills from config")
+    print("  aom sync agents     — copy one agent config/content to others")
+    print("  aom sync clean      — remove locally installed items not in config")
     print()
     return 0
+
+
+def _prompt_agent_selection(candidates: list[str], prompt_label: str = "agent") -> list[str]:
+    """Prompt for one candidate or all candidates."""
+    print(f"Select {prompt_label} to initialize:")
+    for i, agent in enumerate(candidates, 1):
+        cfg = AGENT_MAP[agent]["config_file"]
+        print(f"  [{i}] {agent:<12} ({cfg})")
+    if len(candidates) > 1:
+        print("  [a] all")
+    print()
+
+    while True:
+        choice = input(f"{prompt_label.title()} selection: ").strip()
+        if len(candidates) > 1 and choice.lower() == "a":
+            return list(candidates)
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(candidates):
+                return [candidates[idx]]
+        elif choice in candidates:
+            return [choice]
+        print("  Invalid selection.", file=sys.stderr)
 
 
 def _prompt_repo_urls() -> list[str]:
@@ -1299,14 +1560,21 @@ def build_parser() -> argparse.ArgumentParser:
     # -- sync -----------------------------------------------------------------
     p_sync = sub.add_parser(
         "sync",
-        help="Install all required operations declared in the project config",
+        help="Synchronize operations and agent state",
         description=(
-            "Read the 'Skills Requirements' section from the agent's project\n"
-            "config file (e.g. CLAUDE.md) and install every listed operation into\n"
-            "the local scope. Operations that are already installed at the required\n"
-            "version are skipped unless --force is given."
+            "Sync modes:\n"
+            "  sync            Install requirements from config files (default)\n"
+            "  sync clean      Install requirements and remove extra local installs\n"
+            "  sync agents     Copy one selected agent's config/content to others"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_sync.add_argument(
+        "sync_command",
+        nargs="?",
+        choices=["requirements", "agents", "clean"],
+        default="requirements",
+        help="Sync mode (default: requirements)",
     )
     p_sync.add_argument(
         "--project-dir", metavar="DIR", type=Path, default=None,
