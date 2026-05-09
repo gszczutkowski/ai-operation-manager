@@ -272,7 +272,9 @@ No environment variables are needed. During `aom init`, you can select one or ma
 | `aom init`                   | Interactive setup: detect/select one or many agents, save repo URL |
 | `aom fetch`                  | Refresh the operation index from all remote repositories |
 | `aom install NAME[:VERSION]` | Install operation in local/global scope for selected agent(s) |
+| `aom info NAME[:VERSION]`    | Show rich metadata for an operation before installing    |
 | `aom list`                   | Show available and installed versions (aggregated for multiple agents) |
+| `aom outdated`               | Report installed operations where a newer stable version exists        |
 | `aom sync`                   | Sync modes: `requirements` (default), `agents`, `clean` |
 | `aom update NAME`            | Update a skill to the latest stable version              |
 | `aom view NAME versions`     | List all available versions of an operation              |
@@ -325,6 +327,38 @@ Behavior:
 - With multiple selected agents: installs the resolved version for each selected agent and prints scope with agent name, for example `[local:Codex]`, `[local:ClaudeCode]`.
 - Resolution still considers repository records plus installed local/global records for selected agents.
 
+### `aom info`
+
+Inspect a skill's metadata before installing it. Reads the definition file from the remote repository (or local path) and displays all frontmatter fields — no installation required.
+
+```bash
+aom info create-jira-story            # latest stable version
+aom info create-jira-story:1.0.0     # a specific version
+aom info create-jira-story --json    # machine-readable JSON output
+aom info create-jira-story --fetch   # refresh tag index first
+```
+
+Example output:
+
+```
+create-jira-story  @1.2.0  [skills]  (git)
+────────────────────────────────────────────────────────────
+description         Generate a Jira ticket description from a
+                    standard template. Fills in Summary, Details,
+                    Specifications, and Testing sections.
+author              John Doe
+version             1.2.0
+tags                ai, jira, productivity
+
+Install status
+  local   not installed
+  global  not installed
+
+  To install: aom install create-jira-story:1.2.0
+```
+
+JSON output (with `--json`) includes `name`, `version`, `type`, `source`, `git_tag`, `frontmatter` (all fields as a flat object), and `installed` status for both local and global scopes.
+
 ### `aom list`
 
 Single-agent output:
@@ -345,6 +379,28 @@ Multi-agent output behavior:
 - In `--json`, each operation includes `"partial": { "local": bool, "global": bool }`.
 
 Use `--fetch` to pull the latest tags from the remote before listing.
+
+### `aom outdated`
+
+Concise report of installed operations where a newer stable version exists in the remote. Distinct from `aom list` (which shows everything) — focused view for upgrade decisions.
+
+```bash
+aom outdated              # check all installed operations
+aom outdated --type skills  # limit to a specific artifact type
+aom outdated --json       # machine-readable JSON output
+aom outdated --fetch      # refresh tag index before checking
+```
+
+Example output:
+
+```
+SKILL                    INSTALLED   LATEST
+-------------------------------------------
+create-jira-story        1.0.0       1.2.0
+design-workflow          1.1.0       1.3.0
+```
+
+Pre-release versions (e.g. `1.2.0-SNAPSHOT`) are never shown as the "latest" — only stable releases count. If all installed operations are current, prints `All installed operations are up to date.`
 
 ### `aom sync`
 

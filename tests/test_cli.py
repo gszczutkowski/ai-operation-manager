@@ -19,6 +19,8 @@ from aom.cli import (
     _prompt_agent_selection,
     _prompt_repo_urls,
     _prompt_local_paths,
+    _parse_frontmatter_all,
+    _read_record_content,
 )
 
 # ===================================================================
@@ -1152,3 +1154,551 @@ class TestPromptHelpers:
             paths = _prompt_local_paths()
         assert paths == [str(existing.resolve())]
         assert "At least one path is required." in capsys.readouterr().err
+
+
+# ===================================================================
+# outdated command
+# ===================================================================
+
+
+class TestBuildParserOutdated:
+    def test_outdated_command(self):
+        parser = build_parser()
+        args = parser.parse_args(["outdated"])
+        assert args.command == "outdated"
+
+    def test_outdated_json(self):
+        parser = build_parser()
+        args = parser.parse_args(["outdated", "--json"])
+        assert args.json is True
+
+    def test_outdated_fetch(self):
+        parser = build_parser()
+        args = parser.parse_args(["outdated", "--fetch"])
+        assert args.fetch is True
+
+    def test_outdated_no_fetch(self):
+        parser = build_parser()
+        args = parser.parse_args(["outdated", "--no-fetch"])
+        assert args.no_fetch is True
+
+    def test_outdated_type_filter(self):
+        parser = build_parser()
+        args = parser.parse_args(["outdated", "--type", "commands"])
+        assert args.type == "commands"
+
+    def test_outdated_project_dir(self):
+        parser = build_parser()
+        args = parser.parse_args(["outdated", "--project-dir", "/tmp/proj"])
+        assert args.project_dir == Path("/tmp/proj")
+
+
+class TestCmdOutdated:
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli.scan_installed", return_value=[])
+    def test_no_installed_operations(
+        self,
+        mock_scan,
+        mock_local_dir,
+        mock_global_dir,
+        mock_repo_records,
+        mock_fetch,
+        mock_repos,
+        mock_agents,
+        tmp_path,
+        capsys,
+    ):
+        mock_global_dir.return_value = tmp_path
+        mock_local_dir.return_value = tmp_path
+        result = main(["outdated"])
+        assert result == 0
+        assert "No operations installed" in capsys.readouterr().out
+
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records")
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli.scan_installed")
+    def test_all_up_to_date(
+        self,
+        mock_scan,
+        mock_local_dir,
+        mock_global_dir,
+        mock_repo_records,
+        mock_fetch,
+        mock_repos,
+        mock_agents,
+        make_record,
+        tmp_path,
+        capsys,
+    ):
+        mock_global_dir.return_value = tmp_path
+        mock_local_dir.return_value = tmp_path
+        mock_scan.return_value = [make_record(name="my-skill", version_str="1.2.0")]
+        mock_repo_records.return_value = [make_record(name="my-skill", version_str="1.2.0")]
+        result = main(["outdated"])
+        assert result == 0
+        assert "up to date" in capsys.readouterr().out
+
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records")
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli.scan_installed")
+    def test_shows_outdated_skills(
+        self,
+        mock_scan,
+        mock_local_dir,
+        mock_global_dir,
+        mock_repo_records,
+        mock_fetch,
+        mock_repos,
+        mock_agents,
+        make_record,
+        tmp_path,
+        capsys,
+    ):
+        mock_global_dir.return_value = tmp_path
+        mock_local_dir.return_value = tmp_path
+        mock_scan.return_value = [make_record(name="create-jira-story", version_str="1.0.0")]
+        mock_repo_records.return_value = [make_record(name="create-jira-story", version_str="1.2.0")]
+        result = main(["outdated"])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "create-jira-story" in out
+        assert "1.0.0" in out
+        assert "1.2.0" in out
+
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records")
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli.scan_installed")
+    def test_json_output(
+        self,
+        mock_scan,
+        mock_local_dir,
+        mock_global_dir,
+        mock_repo_records,
+        mock_fetch,
+        mock_repos,
+        mock_agents,
+        make_record,
+        tmp_path,
+        capsys,
+    ):
+        import json
+
+        mock_global_dir.return_value = tmp_path
+        mock_local_dir.return_value = tmp_path
+        mock_scan.return_value = [make_record(name="design-workflow", version_str="1.1.0")]
+        mock_repo_records.return_value = [make_record(name="design-workflow", version_str="1.3.0")]
+        result = main(["outdated", "--json"])
+        assert result == 0
+        data = json.loads(capsys.readouterr().out)
+        assert "design-workflow" in data
+        assert data["design-workflow"]["installed"] == "1.1.0"
+        assert data["design-workflow"]["latest"] == "1.3.0"
+
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records")
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli.scan_installed")
+    def test_type_filter_excludes_other_types(
+        self,
+        mock_scan,
+        mock_local_dir,
+        mock_global_dir,
+        mock_repo_records,
+        mock_fetch,
+        mock_repos,
+        mock_agents,
+        make_record,
+        tmp_path,
+        capsys,
+    ):
+        mock_global_dir.return_value = tmp_path
+        mock_local_dir.return_value = tmp_path
+        mock_scan.return_value = [
+            make_record(name="my-skill", artifact_type="skills", version_str="1.0.0"),
+            make_record(name="my-cmd", artifact_type="commands", version_str="1.0.0"),
+        ]
+        mock_repo_records.return_value = [
+            make_record(name="my-skill", artifact_type="skills", version_str="2.0.0"),
+            make_record(name="my-cmd", artifact_type="commands", version_str="2.0.0"),
+        ]
+        result = main(["outdated", "--type", "skills"])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "my-skill" in out
+        assert "my-cmd" not in out
+
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records")
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli.scan_installed")
+    def test_prerelease_not_shown_as_latest(
+        self,
+        mock_scan,
+        mock_local_dir,
+        mock_global_dir,
+        mock_repo_records,
+        mock_fetch,
+        mock_repos,
+        mock_agents,
+        make_record,
+        tmp_path,
+        capsys,
+    ):
+        mock_global_dir.return_value = tmp_path
+        mock_local_dir.return_value = tmp_path
+        mock_scan.return_value = [make_record(name="my-skill", version_str="1.0.0")]
+        mock_repo_records.return_value = [
+            make_record(name="my-skill", version_str="1.0.0"),
+            make_record(name="my-skill", version_str="2.0.0-SNAPSHOT"),
+        ]
+        result = main(["outdated"])
+        assert result == 0
+        assert "up to date" in capsys.readouterr().out
+
+# ===================================================================
+# _parse_frontmatter_all
+# ===================================================================
+
+
+class TestParseFrontmatterAll:
+    def test_no_frontmatter(self):
+        content = "# Just a heading\n\nSome text."
+        assert _parse_frontmatter_all(content) == {}
+
+    def test_simple_fields(self):
+        content = "---\nname: my-skill\nversion: 1.0.0\n---\n# Body"
+        fm = _parse_frontmatter_all(content)
+        assert fm["name"] == "my-skill"
+        assert fm["version"] == "1.0.0"
+
+    def test_quoted_values(self):
+        content = '---\ndescription: "A great skill"\nauthor: \'John Doe\'\n---'
+        fm = _parse_frontmatter_all(content)
+        assert fm["description"] == "A great skill"
+        assert fm["author"] == "John Doe"
+
+    def test_list_values_joined(self):
+        content = "---\ntags:\n  - ai\n  - jira\n---"
+        fm = _parse_frontmatter_all(content)
+        assert fm["tags"] == "ai, jira"
+
+    def test_nested_flattened(self):
+        content = "---\nmetadata:\n  version: 2.0.0\n  author: Jane\n---"
+        fm = _parse_frontmatter_all(content)
+        assert fm["metadata.version"] == "2.0.0"
+        assert fm["metadata.author"] == "Jane"
+
+    def test_unclosed_frontmatter_returns_empty(self):
+        content = "---\nname: broken\n"
+        assert _parse_frontmatter_all(content) == {}
+
+    def test_empty_content_returns_empty(self):
+        assert _parse_frontmatter_all("") == {}
+
+    def test_comments_ignored(self):
+        content = "---\n# this is a comment\nname: skill\n---"
+        fm = _parse_frontmatter_all(content)
+        assert "name" in fm
+        assert fm["name"] == "skill"
+
+
+# ===================================================================
+# _read_record_content
+# ===================================================================
+
+
+class TestReadRecordContent:
+    def test_reads_local_flat_file(self, tmp_path, make_record):
+        skill_file = tmp_path / "my-skill.md"
+        skill_file.write_text("---\nname: my-skill\n---\n# Body", encoding="utf-8")
+        record = make_record(name="my-skill", version_str="1.0.0")
+        record.path = skill_file
+        content = _read_record_content(record, git_repo=None)
+        assert content is not None
+        assert "name: my-skill" in content
+
+    def test_reads_local_directory(self, tmp_path, make_record):
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: my-skill\n---", encoding="utf-8")
+        record = make_record(name="my-skill", version_str="1.0.0")
+        record.path = skill_dir
+        content = _read_record_content(record, git_repo=None)
+        assert content is not None
+        assert "name: my-skill" in content
+
+    def test_returns_none_for_no_path(self, make_record):
+        record = make_record(name="x", version_str="1.0.0")
+        record.path = None
+        record.git_tag = None
+        assert _read_record_content(record, git_repo=None) is None
+
+    def test_reads_from_git_flat_file(self, make_record):
+        record = make_record(name="my-skill", version_str="1.0.0")
+        record.git_tag = "skills/my-skill@1.0.0"
+        record.path = None
+
+        git_repo = type("FakeRepo", (), {})()
+
+        def _read(tag, path):
+            if path == "skills/my-skill.md":
+                return "---\nname: my-skill\n---"
+            raise RuntimeError("not found")
+
+        git_repo.read_file_at_tag = _read
+        content = _read_record_content(record, git_repo=git_repo)
+        assert content == "---\nname: my-skill\n---"
+
+    def test_reads_from_git_directory_layout(self, make_record):
+        record = make_record(name="my-skill", version_str="1.0.0")
+        record.git_tag = "skills/my-skill@1.0.0"
+        record.path = None
+
+        git_repo = type("FakeRepo", (), {})()
+
+        def _read(tag, path):
+            if path == "skills/my-skill/SKILL.md":
+                return "---\nname: my-skill\n---\n# Content"
+            raise RuntimeError("not found")
+
+        git_repo.read_file_at_tag = _read
+        content = _read_record_content(record, git_repo=git_repo)
+        assert content is not None
+        assert "name: my-skill" in content
+
+    def test_returns_none_when_git_all_paths_fail(self, make_record):
+        record = make_record(name="x", version_str="1.0.0")
+        record.git_tag = "skills/x@1.0.0"
+        record.path = None
+
+        git_repo = type("FakeRepo", (), {})()
+        git_repo.read_file_at_tag = lambda tag, path: (_ for _ in ()).throw(RuntimeError("nope"))
+        assert _read_record_content(record, git_repo=git_repo) is None
+
+
+# ===================================================================
+# info command -- argument parsing
+# ===================================================================
+
+
+class TestBuildParserInfo:
+    def test_info_command(self):
+        parser = build_parser()
+        args = parser.parse_args(["info", "my-skill"])
+        assert args.command == "info"
+        assert args.spec == "my-skill"
+
+    def test_info_with_version(self):
+        parser = build_parser()
+        args = parser.parse_args(["info", "my-skill:1.0.0"])
+        assert args.spec == "my-skill:1.0.0"
+
+    def test_info_json_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["info", "x", "--json"])
+        assert args.json is True
+
+    def test_info_fetch_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["info", "x", "--fetch"])
+        assert args.fetch is True
+
+    def test_info_no_fetch_flag(self):
+        parser = build_parser()
+        args = parser.parse_args(["info", "x", "--no-fetch"])
+        assert args.no_fetch is True
+
+    def test_info_project_dir(self):
+        parser = build_parser()
+        args = parser.parse_args(["info", "x", "--project-dir", "/tmp/proj"])
+        assert args.project_dir == Path("/tmp/proj")
+
+
+# ===================================================================
+# info command -- cmd_info integration
+# ===================================================================
+
+
+class TestCmdInfo:
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli.resolve", return_value=None)
+    def test_not_found_returns_1(
+        self, mock_resolve, mock_local, mock_global,
+        mock_scan, mock_local_paths, mock_git, capsys
+    ):
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/nonexistent")
+        result = main(["info", "nonexistent-skill"])
+        assert result == 1
+        assert "not found" in capsys.readouterr().out
+
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli._find_git_repo_for_record", return_value=None)
+    @patch("aom.cli._read_record_content")
+    @patch("aom.cli.resolve")
+    def test_shows_name_version_type(
+        self, mock_resolve, mock_read, mock_find_repo,
+        mock_local, mock_global, mock_scan, mock_local_paths, mock_git,
+        make_record, capsys
+    ):
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/nonexistent")
+        record = make_record(name="my-skill", version_str="1.2.0")
+        mock_resolve.return_value = record
+        mock_read.return_value = "---\ndescription: A great skill\nauthor: Jane\n---\n# Body"
+
+        result = main(["info", "my-skill"])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "my-skill" in out
+        assert "1.2.0" in out
+        assert "skills" in out
+
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli._find_git_repo_for_record", return_value=None)
+    @patch("aom.cli._read_record_content")
+    @patch("aom.cli.resolve")
+    def test_shows_frontmatter_fields(
+        self, mock_resolve, mock_read, mock_find_repo,
+        mock_local, mock_global, mock_scan, mock_local_paths, mock_git,
+        make_record, capsys
+    ):
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/nonexistent")
+        record = make_record(name="my-skill", version_str="1.0.0")
+        mock_resolve.return_value = record
+        mock_read.return_value = (
+            "---\ndescription: Generates a Jira ticket\nauthor: John Doe\ntags:\n  - ai\n  - jira\n---"
+        )
+
+        result = main(["info", "my-skill"])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "Generates a Jira ticket" in out
+        assert "John Doe" in out
+        assert "ai, jira" in out
+
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli._find_git_repo_for_record", return_value=None)
+    @patch("aom.cli._read_record_content", return_value=None)
+    @patch("aom.cli.resolve")
+    def test_works_without_content(
+        self, mock_resolve, mock_read, mock_find_repo,
+        mock_local, mock_global, mock_scan, mock_local_paths, mock_git,
+        make_record, capsys
+    ):
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/nonexistent")
+        mock_resolve.return_value = make_record(name="my-skill", version_str="1.0.0")
+
+        result = main(["info", "my-skill"])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "my-skill" in out
+
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli._find_git_repo_for_record", return_value=None)
+    @patch("aom.cli._read_record_content")
+    @patch("aom.cli.resolve")
+    def test_json_output(
+        self, mock_resolve, mock_read, mock_find_repo,
+        mock_local, mock_global, mock_scan, mock_local_paths, mock_git,
+        make_record, capsys
+    ):
+        import json as _json
+
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/nonexistent")
+        record = make_record(name="my-skill", version_str="1.0.0")
+        mock_resolve.return_value = record
+        mock_read.return_value = "---\ndescription: Cool skill\nauthor: Alice\n---"
+
+        result = main(["info", "my-skill", "--json"])
+        assert result == 0
+        data = _json.loads(capsys.readouterr().out)
+        assert data["name"] == "my-skill"
+        assert data["version"] == "1.0.0"
+        assert data["frontmatter"]["description"] == "Cool skill"
+        assert data["frontmatter"]["author"] == "Alice"
+        assert data["installed"]["local"] is False
+        assert data["installed"]["global"] is False
+
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli.scan_installed")
+    @patch("aom.cli._find_git_repo_for_record", return_value=None)
+    @patch("aom.cli._read_record_content", return_value=None)
+    @patch("aom.cli.resolve")
+    def test_shows_installed_status(
+        self, mock_resolve, mock_read, mock_find_repo,
+        mock_scan, mock_local, mock_global, mock_repo_records,
+        mock_fetch, mock_local_paths, mock_git, mock_agents,
+        make_record, tmp_path, capsys
+    ):
+        import json as _json
+
+        record = make_record(name="my-skill", version_str="1.0.0")
+        mock_resolve.return_value = record
+        mock_global.return_value = tmp_path
+        mock_local.return_value = tmp_path
+        mock_scan.return_value = [record]
+
+        result = main(["info", "my-skill", "--json"])
+        assert result == 0
+        data = _json.loads(capsys.readouterr().out)
+        assert data["installed"]["local"] is True or data["installed"]["global"] is True
+
+    @patch("aom.cli.cmd_info")
+    def test_info_dispatches(self, mock_info):
+        mock_info.return_value = 0
+        result = main(["info", "my-skill"])
+        assert result == 0
+        mock_info.assert_called_once()
