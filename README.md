@@ -662,7 +662,7 @@ Cloned once with `--filter=blob:none` (no file contents downloaded upfront). Blo
 | Method                                 | Network?        | Description                                      |
 | -------------------------------------- | --------------- | ------------------------------------------------ |
 | `ensure_cloned()`                      | First time only | `git clone --bare --filter=blob:none`            |
-| `fetch()`                              | Yes             | `git fetch --tags --prune origin`                |
+| `fetch()`                              | Yes             | `git fetch --prune origin +refs/tags/*:refs/tags/*` |
 | `list_skill_tags()`                    | No              | `git for-each-ref refs/tags/` — reads local refs |
 | `read_file_at_tag(tag, path)`          | Lazy            | `git show TAG:path` — fetches blob on demand     |
 | `extract_path_at_tag(tag, path, dest)` | Lazy            | `git archive` + Python `tarfile` for directories |

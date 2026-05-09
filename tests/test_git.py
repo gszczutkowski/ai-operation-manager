@@ -119,6 +119,27 @@ class TestGitRepo:
         assert "fetch" in cmd
 
     @patch.object(GitRepo, "_run")
+    def test_fetch_uses_force_refspec(self, mock_run, tmp_path):
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        (cache / "HEAD").touch()
+        repo = GitRepo("x", cache_dir=cache)
+        repo.fetch()
+        cmd = mock_run.call_args[0][0]
+        assert "+refs/tags/*:refs/tags/*" in cmd
+        assert "--tags" not in cmd
+
+    @patch.object(GitRepo, "_run")
+    def test_fetch_includes_prune(self, mock_run, tmp_path):
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        (cache / "HEAD").touch()
+        repo = GitRepo("x", cache_dir=cache)
+        repo.fetch()
+        cmd = mock_run.call_args[0][0]
+        assert "--prune" in cmd
+
+    @patch.object(GitRepo, "_run")
     def test_fetch_saves_timestamp(self, mock_run, tmp_path):
         cache = tmp_path / "cache"
         cache.mkdir()
@@ -163,6 +184,20 @@ class TestGitRepo:
         repo._meta_path.write_text(json.dumps(meta), encoding="utf-8")
         result = repo.fetch_if_stale(ttl_seconds=3600)
         assert result is True
+
+    @patch.object(GitRepo, "_run")
+    def test_fetch_if_stale_uses_force_refspec(self, mock_run, tmp_path):
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        (cache / "HEAD").touch()
+        repo = GitRepo("x", cache_dir=cache)
+        meta = {"last_fetched": time.time() - 7200}
+        repo._meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        repo.fetch_if_stale(ttl_seconds=3600)
+        cmd = mock_run.call_args[0][0]
+        assert "+refs/tags/*:refs/tags/*" in cmd
+        assert "--tags" not in cmd
+        assert "--prune" in cmd
 
     @patch.object(GitRepo, "_run")
     def test_fetch_if_stale_clones_when_not_cloned(self, mock_run, tmp_path):

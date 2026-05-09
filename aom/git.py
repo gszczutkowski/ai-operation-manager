@@ -106,7 +106,7 @@ class GitRepo:
         if verbose:
             print(f"  Fetching {self.url} …", flush=True)
         self._run(
-            ["git", "fetch", "--tags", "--prune", "origin"],
+            ["git", "fetch", "--prune", "origin", "+refs/tags/*:refs/tags/*"],
             cwd=self.cache_dir,
             capture=False,
         )
@@ -129,7 +129,7 @@ class GitRepo:
         if verbose:
             print(f"  Auto-refreshing {self.url} (index stale) …", flush=True)
         self._run(
-            ["git", "fetch", "--tags", "--prune", "origin"],
+            ["git", "fetch", "--prune", "origin", "+refs/tags/*:refs/tags/*"],
             cwd=self.cache_dir,
             capture=False,
         )
