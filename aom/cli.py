@@ -11,7 +11,9 @@ Commands:
   init      Set up a project: detect agent, configure repositories
   fetch     Refresh the operation index from all remote repositories
   install   Install an operation into the local or global scope
+  info      Show rich metadata for an operation before installing
   list      Show available and installed operations with version info
+  outdated  Show installed operations that have a newer stable version available
   sync      Install all required operations declared in the project config
   remove    Uninstall an operation from the local or global scope
   update    Upgrade an operation to the latest available version
@@ -423,6 +425,74 @@ def _best_version_str(
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: outdated
+# ---------------------------------------------------------------------------
+
+def cmd_outdated(args: argparse.Namespace) -> int:
+    """Report installed operations where a newer stable version exists in the remote."""
+    project_dir = (args.project_dir or Path.cwd()).resolve()
+    agents = _active_agents(project_dir)
+    git_repos = _get_git_repos(project_dir)
+    _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
+
+    repo_records = _get_repo_records(git_repos)
+    installed_records: list[SkillRecord] = []
+    for agent in agents:
+        global_dir = get_global_dir(agent=agent, project_dir=project_dir)
+        local_dir = get_local_dir(project_dir, agent=agent)
+        if global_dir.exists():
+            installed_records.extend(scan_installed(global_dir))
+        if local_dir.exists():
+            installed_records.extend(scan_installed(local_dir))
+
+    installed_names: set[str] = set()
+    for r in installed_records:
+        if not args.type or r.artifact_type == args.type:
+            installed_names.add(r.name)
+
+    if not installed_names:
+        print(yellow("No operations installed."))
+        return 0
+
+    outdated: list[tuple[str, str, str]] = []
+    for name in sorted(installed_names):
+        installed_str = _best_version_str(name, installed_records)
+        latest_str = _best_version_str(name, repo_records, stable_only=True)
+        if installed_str == "—" or latest_str == "—":
+            continue
+        installed_v = parse_version(installed_str)
+        latest_v = parse_version(latest_str)
+        if installed_v and latest_v and latest_v > installed_v:
+            outdated.append((name, installed_str, latest_str))
+
+    if not outdated:
+        print(green("All installed operations are up to date."))
+        return 0
+
+    if getattr(args, "json", False):
+        return _outdated_json(outdated)
+
+    return _outdated_table(outdated)
+
+
+def _outdated_table(outdated: list[tuple[str, str, str]]) -> int:
+    col_w = max(len(name) for name, _, _ in outdated) + 2
+    print()
+    print(bold(f"{'SKILL':<{col_w}}  {'INSTALLED':<12}  {'LATEST'}"))
+    print("-" * (col_w + 30))
+    for name, installed, latest in outdated:
+        print(f"{name:<{col_w}}  {yellow(f'{installed:<12}')}  {green(latest)}")
+    print()
+    return 0
+
+
+def _outdated_json(outdated: list[tuple[str, str, str]]) -> int:
+    out = {name: {"installed": inst, "latest": lat} for name, inst, lat in outdated}
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Subcommand: sync
 # ---------------------------------------------------------------------------
 
@@ -782,6 +852,264 @@ def _view_versions_json(name: str, matching: list[SkillRecord]) -> int:
         reverse=True,
     )
     out = {"name": name, "versions": versions}
+    print(json.dumps(out, indent=2))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: info
+# ---------------------------------------------------------------------------
+
+_INFO_CANONICAL_FILENAMES = ("SKILL.md", "COMMAND.md", "AGENT.md", "skill.md", "index.md")
+
+
+def _parse_frontmatter_all(content: str) -> dict[str, str]:
+    """
+    Parse all fields from markdown YAML frontmatter without a YAML library.
+
+    Lists are joined as comma-separated strings.
+    Nested dicts are flattened as 'parent.child'.
+    Returns {} when no frontmatter block is present.
+    """
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+
+    end_idx = None
+    for i, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            end_idx = i
+            break
+    if end_idx is None:
+        return {}
+
+    result: dict[str, str] = {}
+    parent_key: str | None = None
+    collecting_list: str | None = None
+    list_items: list[str] = []
+
+    for raw in lines[1:end_idx]:
+        if not raw.strip() or raw.strip().startswith("#"):
+            continue
+
+        indent = len(raw) - len(raw.lstrip())
+        s = raw.lstrip()
+
+        if s.startswith("- "):
+            if collecting_list is not None:
+                list_items.append(s[2:].strip().strip("\"'"))
+            continue
+
+        if collecting_list is not None:
+            result[collecting_list] = ", ".join(list_items)
+            collecting_list = None
+            list_items = []
+
+        if ":" not in s:
+            continue
+
+        colon = s.index(":")
+        key = s[:colon].strip()
+        val = s[colon + 1:].strip().strip("\"'")
+
+        if indent == 0:
+            parent_key = key
+            if val:
+                result[key] = val
+            else:
+                collecting_list = key
+        else:
+            full_key = f"{parent_key}.{key}" if parent_key else key
+            if collecting_list == parent_key:
+                collecting_list = None
+                list_items = []
+            if val:
+                result[full_key] = val
+            else:
+                collecting_list = full_key
+
+    if collecting_list is not None and list_items:
+        result[collecting_list] = ", ".join(list_items)
+
+    return result
+
+
+def _read_record_content(record: SkillRecord, git_repo) -> str | None:
+    """Return the raw text content of *record*'s definition file, or None on failure."""
+    if record.git_tag and git_repo is not None:
+        tag = record.git_tag
+        # Try canonical files inside a directory layout
+        for fname in _INFO_CANONICAL_FILENAMES:
+            path = f"{record.artifact_type}/{record.name}/{fname}"
+            try:
+                return git_repo.read_file_at_tag(tag, path)
+            except RuntimeError:
+                pass
+        # Fall back to flat file
+        try:
+            return git_repo.read_file_at_tag(tag, f"{record.artifact_type}/{record.name}.md")
+        except RuntimeError:
+            return None
+
+    if record.path is None:
+        return None
+
+    # Local record
+    if record.path.is_file():
+        try:
+            return record.path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+
+    if record.path.is_dir():
+        for fname in _INFO_CANONICAL_FILENAMES:
+            candidate = record.path / fname
+            if candidate.is_file():
+                try:
+                    return candidate.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    return None
+
+    return None
+
+
+def cmd_info(args: argparse.Namespace) -> int:
+    """Show rich metadata for an operation before installing."""
+    project_dir = (args.project_dir or Path.cwd()).resolve()
+    agents = _active_agents(project_dir)
+    git_repos = _get_git_repos(project_dir)
+    _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
+
+    spec = args.spec
+    if ":" in spec:
+        name, version_constraint = spec.split(":", 1)
+    else:
+        name, version_constraint = spec, "latest"
+
+    repo_records = _get_repo_records(git_repos)
+    req = VersionRequirement(name=name, constraint=version_constraint)
+
+    global_installed: list[SkillRecord] = []
+    local_installed: list[SkillRecord] = []
+    for agent in agents:
+        global_dir = get_global_dir(agent=agent, project_dir=project_dir)
+        local_dir = get_local_dir(project_dir, agent=agent)
+        if global_dir.exists():
+            global_installed.extend(scan_installed(global_dir))
+        if local_dir.exists():
+            local_installed.extend(scan_installed(local_dir))
+
+    record = resolve(req, repo_records, global_records=global_installed, local_records=local_installed)
+
+    if record is None:
+        print(red(f"✗ Skill not found: {name}@{version_constraint}"))
+        _suggest_similar(name, repo_records)
+        if git_repos and not getattr(args, "fetch", False):
+            print(dim("  Tip: run with --fetch to refresh the tag index from the remote."))
+        return 1
+
+    git_repo = _find_git_repo_for_record(record, git_repos)
+    content = _read_record_content(record, git_repo)
+    frontmatter = _parse_frontmatter_all(content) if content else {}
+
+    is_local = any(r.name == record.name and r.artifact_type == record.artifact_type
+                   for r in local_installed)
+    is_global = any(r.name == record.name and r.artifact_type == record.artifact_type
+                    for r in global_installed)
+
+    if getattr(args, "json", False):
+        return _info_json(record, frontmatter, content, is_local, is_global)
+
+    return _info_table(record, frontmatter, content, is_local, is_global)
+
+
+def _info_table(
+    record: SkillRecord,
+    frontmatter: dict[str, str],
+    content: str | None,
+    is_local: bool,
+    is_global: bool,
+) -> int:
+    v = record.version.raw if record.version else "unknown"
+    source = "git" if record.git_tag else "local"
+
+    print()
+    print(bold(f"{record.name}") + f"  @{v}  [{record.artifact_type}]  ({source})")
+    print("─" * 60)
+
+    # Priority fields shown first, then remaining fields
+    priority = ["description", "author", "version", "tags"]
+    shown: set[str] = set()
+
+    def _print_field(key: str, value: str) -> None:
+        label = f"{key:<18}"
+        # Wrap long values at ~60 chars
+        words = value.split()
+        line_words: list[str] = []
+        lines_out: list[str] = []
+        for word in words:
+            if sum(len(w) + 1 for w in line_words) + len(word) > 58:
+                lines_out.append(" ".join(line_words))
+                line_words = [word]
+            else:
+                line_words.append(word)
+        if line_words:
+            lines_out.append(" ".join(line_words))
+        continuation = " " * 20
+        first = True
+        for ln in lines_out:
+            if first:
+                print(f"  {label}{ln}")
+                first = False
+            else:
+                print(f"  {continuation}{ln}")
+
+    for key in priority:
+        if key in frontmatter:
+            _print_field(key, frontmatter[key])
+            shown.add(key)
+
+    other = {k: v for k, v in frontmatter.items() if k not in shown and k not in ("version",)}
+    if other:
+        print()
+        for key, val in other.items():
+            _print_field(key, val)
+
+    print()
+    print(bold("Install status"))
+    local_label = green("installed") if is_local else dim("not installed")
+    global_label = green("installed") if is_global else dim("not installed")
+    print(f"  local   {local_label}")
+    print(f"  global  {global_label}")
+
+    if not is_local:
+        print()
+        spec = f"{record.name}:{record.version.raw}" if record.version else record.name
+        print(dim(f"  To install: aom install {spec}"))
+
+    print()
+    return 0
+
+
+def _info_json(
+    record: SkillRecord,
+    frontmatter: dict[str, str],
+    content: str | None,
+    is_local: bool,
+    is_global: bool,
+) -> int:
+    out: dict = {
+        "name": record.name,
+        "version": record.version.raw if record.version else None,
+        "type": record.artifact_type,
+        "source": "git" if record.git_tag else "local",
+        "git_tag": record.git_tag,
+        "frontmatter": frontmatter,
+        "installed": {
+            "local": is_local,
+            "global": is_global,
+        },
+    }
     print(json.dumps(out, indent=2))
     return 0
 
@@ -1534,6 +1862,37 @@ def build_parser() -> argparse.ArgumentParser:
     _add_fetch_args(p_install)
     _add_scope_args(p_install)
 
+    # -- info -----------------------------------------------------------------
+    p_info = sub.add_parser(
+        "info",
+        help="Show rich metadata for an operation before installing",
+        description=(
+            "Display rich metadata for an operation without installing it.\n\n"
+            "Reads the operation's definition file from the remote repository\n"
+            "or local path and shows all frontmatter fields: description, author,\n"
+            "version, tags, and any custom fields defined by the skill author.\n"
+            "Also reports whether the operation is already installed locally\n"
+            "or globally."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_info.add_argument(
+        "spec", metavar="NAME[:VERSION]",
+        help="Operation name with an optional version constraint (e.g. create-jira-story:1.0.0)",
+    )
+    p_info.add_argument(
+        "--json", action="store_true",
+        help="Print output as JSON instead of a human-readable display",
+    )
+    _add_fetch_args(p_info)
+    p_info.add_argument(
+        "--project-dir", metavar="DIR", type=Path, default=None,
+        help=(
+            "Path to the project root directory used to determine install status "
+            "(default: current working directory)"
+        ),
+    )
+
     # -- list -----------------------------------------------------------------
     p_list = sub.add_parser(
         "list",
@@ -1560,6 +1919,39 @@ def build_parser() -> argparse.ArgumentParser:
     p_list.add_argument(
         "--type", choices=ARTIFACT_TYPES, metavar="TYPE",
         help="Show only artifacts of the given type: %(choices)s",
+    )
+
+    # -- outdated -------------------------------------------------------------
+    p_outdated = sub.add_parser(
+        "outdated",
+        help="Show installed operations that have a newer stable version available",
+        description=(
+            "Check every installed operation against the remote repository and\n"
+            "report only those where a newer stable release exists. Use this to\n"
+            "identify upgrade candidates before running 'aom update'.\n\n"
+            "Example output:\n"
+            "  SKILL                    INSTALLED   LATEST\n"
+            "  -------------------------------------------\n"
+            "  create-jira-story        1.0.0       1.2.0\n"
+            "  design-workflow          1.1.0       1.3.0"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_outdated.add_argument(
+        "--json", action="store_true",
+        help="Print the result as a JSON object instead of a human-readable table",
+    )
+    _add_fetch_args(p_outdated)
+    p_outdated.add_argument(
+        "--project-dir", metavar="DIR", type=Path, default=None,
+        help=(
+            "Path to the project root directory used to locate the local scope "
+            "(default: current working directory)"
+        ),
+    )
+    p_outdated.add_argument(
+        "--type", choices=ARTIFACT_TYPES, metavar="TYPE",
+        help="Check only artifacts of the given type: %(choices)s",
     )
 
     # -- sync -----------------------------------------------------------------
@@ -1742,7 +2134,9 @@ def main(argv: list[str] | None = None) -> int:
         "init":     cmd_init,
         "fetch":    cmd_fetch,
         "install":  cmd_install,
+        "info":     cmd_info,
         "list":     cmd_list,
+        "outdated": cmd_outdated,
         "sync":     cmd_sync,
         "remove":   cmd_remove,
         "update":   cmd_update,
