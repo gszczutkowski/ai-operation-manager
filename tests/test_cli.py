@@ -66,6 +66,16 @@ class TestBuildParser:
         args = parser.parse_args(["list", "--json"])
         assert args.json is True
 
+    def test_list_requirements_subcommand(self):
+        parser = build_parser()
+        args = parser.parse_args(["list", "requirements"])
+        assert args.list_command == "requirements"
+
+    def test_list_no_subcommand_is_none(self):
+        parser = build_parser()
+        args = parser.parse_args(["list"])
+        assert args.list_command is None
+
     def test_sync_dry_run(self):
         parser = build_parser()
         args = parser.parse_args(["sync", "--dry-run"])
@@ -682,6 +692,7 @@ class TestCmdList:
         assert result == 0
         assert "No skills found." in capsys.readouterr().out
 
+    @patch("aom.cli.read_selected_agents", return_value=["ClaudeCode", "Kiro"])
     @patch("aom.cli._active_agents", return_value=["ClaudeCode", "Kiro"])
     @patch("aom.cli._get_git_repos", return_value=[])
     @patch("aom.cli._fetch_if_requested")
@@ -698,6 +709,7 @@ class TestCmdList:
         mock_fetch,
         mock_repos,
         mock_agents,
+        mock_read_selected,
         make_record,
         tmp_path,
         capsys,
@@ -725,6 +737,71 @@ class TestCmdList:
         assert out["shared-skill"]["partial"]["local"] is True
         assert out["shared-skill"]["partial"]["global"] is False
         assert out["shared-skill"]["local"].endswith("*")
+
+    @patch("aom.cli.read_selected_agents", return_value=None)
+    @patch("aom.cli.detect_supported_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records", return_value=[])
+    @patch("aom.cli.get_global_dir", return_value=Path("/nonexistent"))
+    def test_uninitialized_shows_note(
+        self,
+        mock_global_dir,
+        mock_repo_records,
+        mock_fetch,
+        mock_repos,
+        mock_detect,
+        mock_read_selected,
+        capsys,
+    ):
+        result = main(["list"])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "aom init" in out
+        assert "Only global skills are visible" in out
+
+    @patch("aom.cli.read_selected_agents", return_value=None)
+    @patch("aom.cli.detect_supported_agents", return_value=[])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records", return_value=[])
+    def test_uninitialized_no_agents_no_note(
+        self,
+        mock_repo_records,
+        mock_fetch,
+        mock_repos,
+        mock_detect,
+        mock_read_selected,
+        capsys,
+    ):
+        result = main(["list"])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "aom init" not in out
+
+    @patch("aom.cli.read_selected_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli._fetch_if_requested")
+    @patch("aom.cli._get_repo_records", return_value=[])
+    @patch("aom.cli.get_global_dir", return_value=Path("/nonexistent"))
+    @patch("aom.cli.get_local_dir", return_value=Path("/nonexistent"))
+    @patch("aom.cli.parse_manifest", return_value=[])
+    def test_list_requirements_no_reqs(
+        self,
+        mock_parse,
+        mock_local_dir,
+        mock_global_dir,
+        mock_repo_records,
+        mock_fetch,
+        mock_repos,
+        mock_agents,
+        mock_read_selected,
+        capsys,
+    ):
+        result = main(["list", "requirements"])
+        assert result == 0
+        assert "No skill requirements found" in capsys.readouterr().out
 
 
 # ===================================================================
