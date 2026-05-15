@@ -274,6 +274,7 @@ No environment variables are needed. During `aom init`, you can select one or ma
 | `aom install NAME[:VERSION]` | Install operation in local/global scope for selected agent(s) |
 | `aom info NAME[:VERSION]`    | Show rich metadata for an operation before installing    |
 | `aom list`                   | Show available and installed versions (aggregated for multiple agents) |
+| `aom list requirements`      | Show only skills declared as requirements in the project config        |
 | `aom outdated`               | Report installed operations where a newer stable version exists        |
 | `aom sync`                   | Sync modes: `requirements` (default), `agents`, `clean` |
 | `aom update NAME`            | Update a skill to the latest stable version              |
@@ -378,7 +379,39 @@ Multi-agent output behavior:
 - A footnote is printed: `* not all selected agents have the same installed version`.
 - In `--json`, each operation includes `"partial": { "local": bool, "global": bool }`.
 
+**Uninitialized project behavior**: if `aom init` has not been run in the current project (no `.aom/agents.json`), `aom list` shows only globally installed skills and prints a note:
+
+```
+Note: Only global skills are visible — aom has not been initialized in this project.
+      Run 'aom init' to enable local skill management.
+```
+
+The `LOCAL` column is omitted in this mode. If no supported agent config files are detected at all, the note is suppressed.
+
 Use `--fetch` to pull the latest tags from the remote before listing.
+
+#### `aom list requirements`
+
+Shows only skills that are declared as requirements in the project config file(s), together with the pinned constraint and current install status.
+
+```
+SKILL                    REQUIREMENT  LOCAL    GLOBAL   LATEST
+--------------------------------------------------------------
+create-jira-story        1.0.0        1.0.0    —        1.2.0
+design-workflow          >=1.1.0      1.1.0    —        1.2.0
+evaluate-skill           latest       —        —        1.0.0
+```
+
+When multiple agents are active and have **different constraints for the same skill**, an `AGENT` column is added and the skill appears once per agent that declares it:
+
+```
+SKILL              AGENT       REQUIREMENT  LOCAL    GLOBAL   LATEST
+--------------------------------------------------------------------
+create-jira-story  ClaudeCode  1.0.0        1.0.0    —        1.2.0
+create-jira-story  Kiro        >=1.1.0      —        —        1.2.0
+```
+
+If all agents share the same constraint, the `AGENT` column is omitted and the skill appears once (as with single-agent mode).
 
 ### `aom outdated`
 

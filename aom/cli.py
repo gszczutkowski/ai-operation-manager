@@ -269,12 +269,52 @@ def cmd_install(args: argparse.Namespace) -> int:
 def cmd_list(args: argparse.Namespace) -> int:
     """List all known skills with their installed and available versions."""
     project_dir = (args.project_dir or Path.cwd()).resolve()
-    agents = _active_agents(project_dir)
+    initialized = read_selected_agents(project_dir) is not None
+    list_command = getattr(args, "list_command", None)
+
     git_repos = _get_git_repos(project_dir)
     _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
-
     repo_records = _get_repo_records(git_repos)
-    global_by_agent: dict[str, list[SkillRecord]] = {}
+
+    if not initialized:
+        detected_agents = detect_supported_agents(project_dir)
+        if detected_agents:
+            print(yellow(
+                "Note: Only global skills are visible — aom has not been initialized in this project."
+            ))
+            print(yellow("      Run 'aom init' to enable local skill management."))
+            print()
+        # Scan global dirs only; skip local entirely
+        scan_agents = detected_agents or []
+        global_by_agent: dict[str, list[SkillRecord]] = {}
+        for agent in scan_agents:
+            global_dir = get_global_dir(agent=agent, project_dir=project_dir)
+            global_by_agent[agent] = scan_installed(global_dir) if global_dir.exists() else []
+        global_records = [r for records in global_by_agent.values() for r in records]
+
+        all_names: set[str] = set()
+        for r in repo_records + global_records:
+            if not args.type or r.artifact_type == args.type:
+                all_names.add(r.name)
+
+        if not all_names:
+            print(yellow("No skills found."))
+            return 0
+
+        if args.json:
+            return _list_json(
+                sorted(all_names), repo_records, global_records, [],
+                agents=scan_agents, global_by_agent=global_by_agent, local_by_agent={},
+            )
+        return _list_table(
+            sorted(all_names), repo_records, global_records, [],
+            agents=scan_agents, global_by_agent=global_by_agent, local_by_agent={},
+            show_local=False,
+        )
+
+    # Initialized mode
+    agents = _active_agents(project_dir)
+    global_by_agent = {}
     local_by_agent: dict[str, list[SkillRecord]] = {}
     for agent in agents:
         global_dir = get_global_dir(agent=agent, project_dir=project_dir)
@@ -285,8 +325,14 @@ def cmd_list(args: argparse.Namespace) -> int:
     global_records = [r for records in global_by_agent.values() for r in records]
     local_records = [r for records in local_by_agent.values() for r in records]
 
+    if list_command == "requirements":
+        return _list_requirements_table(
+            project_dir, agents, repo_records, global_records, local_records,
+            global_by_agent=global_by_agent, local_by_agent=local_by_agent,
+        )
+
     # Collect all unique names across all sources
-    all_names: set[str] = set()
+    all_names = set()
     for r in repo_records + global_records + local_records:
         if not args.type or r.artifact_type == args.type:
             all_names.add(r.name)
@@ -297,23 +343,13 @@ def cmd_list(args: argparse.Namespace) -> int:
 
     if args.json:
         return _list_json(
-            sorted(all_names),
-            repo_records,
-            global_records,
-            local_records,
-            agents=agents,
-            global_by_agent=global_by_agent,
-            local_by_agent=local_by_agent,
+            sorted(all_names), repo_records, global_records, local_records,
+            agents=agents, global_by_agent=global_by_agent, local_by_agent=local_by_agent,
         )
 
     return _list_table(
-        sorted(all_names),
-        repo_records,
-        global_records,
-        local_records,
-        agents=agents,
-        global_by_agent=global_by_agent,
-        local_by_agent=local_by_agent,
+        sorted(all_names), repo_records, global_records, local_records,
+        agents=agents, global_by_agent=global_by_agent, local_by_agent=local_by_agent,
     )
 
 
@@ -325,32 +361,49 @@ def _list_table(
     agents: list[str] | None = None,
     global_by_agent: dict[str, list[SkillRecord]] | None = None,
     local_by_agent: dict[str, list[SkillRecord]] | None = None,
+    show_local: bool = True,
 ) -> int:
-    col_w = max(len(n) for n in names) + 2
-
-    print()
-    print(bold(f"{'SKILL':<{col_w}}  {'LOCAL':<12}  {'GLOBAL':<12}  {'LATEST'}"))
-    print("-" * (col_w + 42))
-
-    has_partial = False
-
+    # Pre-compute all row values so column widths can be derived from actual content
+    rows: list[tuple[str, str, str, str, bool, bool]] = []
     for name in names:
         local_v = _best_version_str(name, local_records)
         global_v = _best_version_str(name, global_records)
         local_partial = False
         global_partial = False
-        if agents and len(agents) > 1 and local_by_agent:
+        if show_local and agents and len(agents) > 1 and local_by_agent:
             local_v, local_partial = _aggregate_agent_versions(name, agents, local_by_agent)
         if agents and len(agents) > 1 and global_by_agent:
             global_v, global_partial = _aggregate_agent_versions(name, agents, global_by_agent)
         latest_v = _best_version_str(name, repo_records, stable_only=True)
+        rows.append((name, local_v, global_v, latest_v, local_partial, global_partial))
+
+    skill_w = max(len("SKILL"), max(len(r[0]) for r in rows)) + 2
+    global_w = max(len("GLOBAL"), max(len(r[2]) for r in rows)) + 2
+    latest_label = "LATEST"
+
+    if show_local:
+        local_w = max(len("LOCAL"), max(len(r[1]) for r in rows)) + 2
+        header = bold(f"{'SKILL':<{skill_w}}  {'LOCAL':<{local_w}}  {'GLOBAL':<{global_w}}  {latest_label}")
+        sep_len = skill_w + 2 + local_w + 2 + global_w + 2 + len(latest_label)
+    else:
+        local_w = 0
+        header = bold(f"{'SKILL':<{skill_w}}  {'GLOBAL':<{global_w}}  {latest_label}")
+        sep_len = skill_w + 2 + global_w + 2 + len(latest_label)
+
+    print()
+    print(header)
+    print("-" * sep_len)
+
+    has_partial = False
+    for name, local_v, global_v, latest_v, local_partial, global_partial in rows:
         has_partial = has_partial or local_partial or global_partial
-
-        local_d = green(f"{local_v:<12}") if local_v != "—" else dim(f"{'—':<12}")
-        global_d = yellow(f"{global_v:<12}") if global_v != "—" else dim(f"{'—':<12}")
+        global_d = yellow(f"{global_v:<{global_w}}") if global_v != "—" else dim(f"{'—':<{global_w}}")
         latest_d = bold(latest_v) if latest_v != "—" else dim("—")
-
-        print(f"{name:<{col_w}}  {local_d}  {global_d}  {latest_d}")
+        if show_local:
+            local_d = green(f"{local_v:<{local_w}}") if local_v != "—" else dim(f"{'—':<{local_w}}")
+            print(f"{name:<{skill_w}}  {local_d}  {global_d}  {latest_d}")
+        else:
+            print(f"{name:<{skill_w}}  {global_d}  {latest_d}")
 
     print()
     if has_partial:
@@ -384,6 +437,119 @@ def _list_json(
             "partial": partial,
         }
     print(json.dumps(out, indent=2))
+    return 0
+
+
+def _list_requirements_table(
+    project_dir: Path,
+    agents: list[str],
+    repo_records: list[SkillRecord],
+    global_records: list[SkillRecord],
+    local_records: list[SkillRecord],
+    global_by_agent: dict[str, list[SkillRecord]] | None = None,
+    local_by_agent: dict[str, list[SkillRecord]] | None = None,
+) -> int:
+    # Read requirements from each agent's config file
+    reqs_by_agent: dict[str, dict[str, str]] = {}
+    for agent in agents:
+        cfg = AGENT_MAP[agent]
+        manifest_path = project_dir / cfg["config_file"]
+        reqs = parse_manifest(manifest_path)
+        reqs_by_agent[agent] = {r.name: r.constraint for r in reqs}
+
+    all_req_names: set[str] = set()
+    for agent_reqs in reqs_by_agent.values():
+        all_req_names.update(agent_reqs.keys())
+
+    if not all_req_names:
+        print(yellow("No skill requirements found in project configuration."))
+        return 0
+
+    names = sorted(all_req_names)
+
+    # Determine whether the AGENT column is needed:
+    # needed when multiple agents and at least one skill has differing constraints
+    needs_agent_col = False
+    if len(agents) > 1:
+        for name in names:
+            constraints = {reqs_by_agent.get(a, {}).get(name) for a in agents}
+            if len(constraints) > 1:
+                needs_agent_col = True
+                break
+
+    # Build display rows: (name, local_v, global_v, latest_v, requirement, agent_label)
+    rows: list[tuple[str, str, str, str, str, str | None]] = []
+    for name in names:
+        local_v = _best_version_str(name, local_records)
+        global_v = _best_version_str(name, global_records)
+        if agents and len(agents) > 1 and local_by_agent:
+            local_v, _ = _aggregate_agent_versions(name, agents, local_by_agent)
+        if agents and len(agents) > 1 and global_by_agent:
+            global_v, _ = _aggregate_agent_versions(name, agents, global_by_agent)
+        latest_v = _best_version_str(name, repo_records, stable_only=True)
+
+        if not needs_agent_col:
+            constraint = next(
+                (reqs_by_agent[a][name] for a in agents if name in reqs_by_agent.get(a, {})),
+                "—",
+            )
+            rows.append((name, local_v, global_v, latest_v, constraint, None))
+        else:
+            agent_constraints = {a: reqs_by_agent.get(a, {}).get(name) for a in agents}
+            present = {a: c for a, c in agent_constraints.items() if c is not None}
+            unique = set(present.values())
+            if len(unique) == 1 and len(present) == len(agents):
+                # All agents have the same constraint
+                rows.append((name, local_v, global_v, latest_v, next(iter(unique)), "*"))
+            else:
+                # Per-agent rows for agents that have the requirement
+                for agent in agents:
+                    c = present.get(agent)
+                    if c is not None:
+                        rows.append((name, local_v, global_v, latest_v, c, agent))
+
+    if not rows:
+        print(yellow("No skill requirements found."))
+        return 0
+
+    # Compute column widths from actual content
+    skill_w = max(len("SKILL"), max(len(r[0]) for r in rows)) + 2
+    req_w = max(len("REQUIREMENT"), max(len(r[4]) for r in rows)) + 2
+    local_w = max(len("LOCAL"), max(len(r[1]) for r in rows)) + 2
+    global_w = max(len("GLOBAL"), max(len(r[2]) for r in rows)) + 2
+
+    if needs_agent_col:
+        agent_labels = [r[5] for r in rows if r[5] is not None]
+        agent_w = max(len("AGENT"), max(len(a) for a in agent_labels) if agent_labels else 0) + 2
+        header = bold(
+            f"{'SKILL':<{skill_w}}  {'AGENT':<{agent_w}}  {'REQUIREMENT':<{req_w}}"
+            f"  {'LOCAL':<{local_w}}  {'GLOBAL':<{global_w}}  LATEST"
+        )
+        sep_len = skill_w + 2 + agent_w + 2 + req_w + 2 + local_w + 2 + global_w + 2 + len("LATEST")
+    else:
+        agent_w = 0
+        header = bold(
+            f"{'SKILL':<{skill_w}}  {'REQUIREMENT':<{req_w}}"
+            f"  {'LOCAL':<{local_w}}  {'GLOBAL':<{global_w}}  LATEST"
+        )
+        sep_len = skill_w + 2 + req_w + 2 + local_w + 2 + global_w + 2 + len("LATEST")
+
+    print()
+    print(header)
+    print("-" * sep_len)
+
+    for name, local_v, global_v, latest_v, requirement, agent_label in rows:
+        local_d = green(f"{local_v:<{local_w}}") if local_v != "—" else dim(f"{'—':<{local_w}}")
+        global_d = yellow(f"{global_v:<{global_w}}") if global_v != "—" else dim(f"{'—':<{global_w}}")
+        latest_d = bold(latest_v) if latest_v != "—" else dim("—")
+        req_d = f"{requirement:<{req_w}}"
+        if needs_agent_col:
+            agent_d = f"{(agent_label or '—'):<{agent_w}}"
+            print(f"{name:<{skill_w}}  {agent_d}  {req_d}  {local_d}  {global_d}  {latest_d}")
+        else:
+            print(f"{name:<{skill_w}}  {req_d}  {local_d}  {global_d}  {latest_d}")
+
+    print()
     return 0
 
 
@@ -1903,6 +2069,13 @@ def build_parser() -> argparse.ArgumentParser:
             "readable output."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p_list.add_argument(
+        "list_command",
+        nargs="?",
+        choices=["requirements"],
+        default=None,
+        help="Optional filter mode: 'requirements' shows only skills declared as requirements",
     )
     p_list.add_argument(
         "--json", action="store_true",
