@@ -1,0 +1,1704 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>aom — AI Operation Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" id="hljs-theme" />
+  <style>
+    :root {
+      --bg: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --bg-code: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --text-muted: #8b949e;
+      --text-secondary: #c9d1d9;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --accent-bg: rgba(56, 139, 253, 0.1);
+      --green: #3fb950;
+      --green-bg: rgba(63, 185, 80, 0.1);
+      --yellow: #d29922;
+      --yellow-bg: rgba(210, 153, 34, 0.1);
+      --red: #f85149;
+      --red-bg: rgba(248, 81, 73, 0.1);
+      --purple: #bc8cff;
+      --sidebar-width: 260px;
+      --header-height: 60px;
+      --radius: 8px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+    [data-theme="light"] {
+      --bg: #ffffff;
+      --bg-secondary: #f6f8fa;
+      --bg-tertiary: #eaeef2;
+      --bg-code: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-muted: #656d76;
+      --text-secondary: #24292f;
+      --accent: #0969da;
+      --accent-hover: #0550ae;
+      --accent-bg: rgba(9, 105, 218, 0.08);
+      --green: #1a7f37;
+      --green-bg: rgba(26, 127, 55, 0.08);
+      --yellow: #9a6700;
+      --yellow-bg: rgba(154, 103, 0, 0.08);
+      --red: #d1242f;
+      --red-bg: rgba(209, 36, 47, 0.08);
+      --purple: #8250df;
+      --shadow: 0 4px 24px rgba(0,0,0,0.1);
+    }
+    [data-theme="light"] #hljs-theme { }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-size: 16px; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      height: var(--header-height);
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 24px;
+      gap: 16px;
+      backdrop-filter: blur(8px);
+    }
+    .header-logo {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none; color: var(--text);
+      font-weight: 700; font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+    .logo-badge {
+      background: linear-gradient(135deg, #58a6ff, #bc8cff);
+      color: #fff; border-radius: 6px;
+      padding: 3px 8px; font-size: 0.85rem; font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .header-nav { display: flex; gap: 4px; align-items: center; flex: 1; }
+    .header-nav a {
+      color: var(--text-muted); text-decoration: none;
+      font-size: 0.875rem; padding: 6px 12px; border-radius: 6px;
+      transition: all 0.15s;
+    }
+    .header-nav a:hover { color: var(--text); background: var(--bg-tertiary); }
+    .header-right { display: flex; gap: 8px; align-items: center; }
+    .btn-theme {
+      background: var(--bg-tertiary); border: 1px solid var(--border);
+      color: var(--text-muted); border-radius: 6px;
+      width: 34px; height: 34px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; transition: all 0.15s;
+    }
+    .btn-theme:hover { color: var(--text); border-color: var(--accent); }
+    .badge-version {
+      background: var(--accent-bg); color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 20px; padding: 3px 10px;
+      font-size: 0.75rem; font-weight: 600;
+    }
+
+    /* ── Layout ── */
+    .layout {
+      display: flex;
+      padding-top: var(--header-height);
+      min-height: 100vh;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: var(--sidebar-width);
+      flex-shrink: 0;
+      position: fixed;
+      top: var(--header-height);
+      left: 0;
+      bottom: 0;
+      overflow-y: auto;
+      padding: 20px 0;
+      border-right: 1px solid var(--border);
+      background: var(--bg-secondary);
+    }
+    .sidebar::-webkit-scrollbar { width: 4px; }
+    .sidebar::-webkit-scrollbar-track { background: transparent; }
+    .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .nav-section { margin-bottom: 8px; }
+    .nav-label {
+      font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--text-muted); padding: 8px 20px 4px;
+    }
+    .nav-link {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 20px; color: var(--text-muted);
+      text-decoration: none; font-size: 0.875rem;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .nav-link:hover { color: var(--text); background: var(--accent-bg); }
+    .nav-link.active {
+      color: var(--accent); border-left-color: var(--accent);
+      background: var(--accent-bg);
+    }
+    .nav-link .icon { font-size: 0.9rem; width: 16px; text-align: center; }
+    .nav-sub { padding-left: 16px; }
+    .nav-sub .nav-link { font-size: 0.8rem; padding: 4px 20px; }
+
+    /* ── Main content ── */
+    .main {
+      flex: 1;
+      margin-left: var(--sidebar-width);
+      padding: 40px 48px 80px;
+      max-width: 900px;
+    }
+
+    /* ── Sections ── */
+    section { margin-bottom: 64px; }
+    section:last-child { margin-bottom: 0; }
+
+    /* ── Hero ── */
+    .hero {
+      padding: 48px 0 40px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 48px;
+    }
+    .hero h1 {
+      font-size: 2.5rem; font-weight: 700;
+      background: linear-gradient(135deg, #58a6ff 0%, #bc8cff 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 12px;
+    }
+    .hero p { font-size: 1.125rem; color: var(--text-secondary); max-width: 640px; margin-bottom: 24px; }
+    .hero-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 14px; border-radius: 20px;
+      font-size: 0.8rem; font-weight: 600;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text-muted);
+    }
+    .hero-badge.green { color: var(--green); border-color: var(--green); background: var(--green-bg); }
+    .hero-badge.blue { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); }
+    .hero-badge.purple { color: var(--purple); border-color: var(--purple); background: rgba(188,140,255,0.1); }
+
+    /* ── Typography ── */
+    h2 {
+      font-size: 1.5rem; font-weight: 700;
+      margin-bottom: 16px; color: var(--text);
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    h3 {
+      font-size: 1.1rem; font-weight: 600;
+      margin: 28px 0 12px; color: var(--text);
+    }
+    h4 { font-size: 0.95rem; font-weight: 600; margin: 20px 0 8px; color: var(--text-secondary); }
+    p { color: var(--text-secondary); margin-bottom: 14px; }
+    strong { color: var(--text); font-weight: 600; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; color: var(--accent-hover); }
+    ul, ol { color: var(--text-secondary); padding-left: 22px; margin-bottom: 14px; }
+    li { margin-bottom: 4px; }
+
+    /* ── Code ── */
+    code {
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 0.85em;
+      background: var(--bg-tertiary);
+      color: var(--accent);
+      padding: 2px 6px; border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    pre {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0;
+      margin: 16px 0;
+      overflow: hidden;
+      position: relative;
+    }
+    pre code {
+      background: none; border: none;
+      color: inherit; padding: 16px 20px;
+      display: block; overflow-x: auto;
+      font-size: 0.875rem; line-height: 1.6;
+    }
+    .code-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--bg-tertiary);
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+    }
+    .code-lang {
+      color: var(--text-muted); font-weight: 500;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .code-dots { display: flex; gap: 5px; }
+    .code-dots span {
+      width: 10px; height: 10px; border-radius: 50%;
+    }
+    .code-dots span:nth-child(1) { background: #ff5f56; }
+    .code-dots span:nth-child(2) { background: #ffbd2e; }
+    .code-dots span:nth-child(3) { background: #27c93f; }
+    .copy-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-muted); cursor: pointer;
+      padding: 3px 10px; border-radius: 4px;
+      font-size: 0.75rem; transition: all 0.15s;
+      font-family: inherit;
+    }
+    .copy-btn:hover { color: var(--text); border-color: var(--accent); }
+    .copy-btn.copied { color: var(--green); border-color: var(--green); }
+
+    /* Terminal style */
+    .terminal {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin: 16px 0;
+    }
+    [data-theme="light"] .terminal { background: #1e1e2e; }
+    .terminal-header {
+      background: #161b22;
+      padding: 8px 16px;
+      display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    [data-theme="light"] .terminal-header { background: #2d2d3f; }
+    .terminal-title { color: #8b949e; font-size: 0.75rem; }
+    .terminal-body {
+      padding: 16px 20px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: #e6edf3;
+      overflow-x: auto;
+    }
+    .terminal-body .prompt { color: #58a6ff; }
+    .terminal-body .comment { color: #6e7681; }
+    .terminal-body .success { color: #3fb950; }
+    .terminal-body .info { color: #d29922; }
+    .terminal-body .output { color: #c9d1d9; }
+
+    /* ── Tables ── */
+    .table-wrap { overflow-x: auto; margin: 16px 0; border-radius: var(--radius); border: 1px solid var(--border); }
+    table { border-collapse: collapse; width: 100%; }
+    th {
+      background: var(--bg-tertiary);
+      text-align: left; padding: 10px 16px;
+      font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 10px 16px;
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--accent-bg); }
+    td code { font-size: 0.8rem; }
+
+    /* ── Cards ── */
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin: 20px 0; }
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      transition: all 0.2s;
+    }
+    .card:hover { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .card-icon { font-size: 1.5rem; margin-bottom: 10px; }
+    .card h4 { margin: 0 0 6px; font-size: 0.95rem; color: var(--text); }
+    .card p { margin: 0; font-size: 0.85rem; color: var(--text-muted); }
+
+    /* ── Callouts ── */
+    .callout {
+      border-radius: var(--radius);
+      padding: 14px 18px;
+      margin: 16px 0;
+      display: flex; gap: 12px;
+      align-items: flex-start;
+      border: 1px solid;
+    }
+    .callout-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+    .callout-content { font-size: 0.875rem; }
+    .callout-content p { margin: 0; }
+    .callout.info { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+    .callout.warning { background: var(--yellow-bg); border-color: var(--yellow); color: var(--yellow); }
+    .callout.success { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+    .callout .callout-content { color: var(--text-secondary); }
+
+    /* ── Steps ── */
+    .steps { counter-reset: step; margin: 20px 0; }
+    .step {
+      display: flex; gap: 16px; margin-bottom: 24px;
+      align-items: flex-start;
+    }
+    .step-num {
+      counter-increment: step;
+      width: 32px; height: 32px;
+      background: var(--accent-bg);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.8rem; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .step-num::before { content: counter(step); }
+    .step-content { flex: 1; padding-top: 5px; }
+    .step-content h4 { margin-top: 0; }
+
+    /* ── Tabs ── */
+    .tabs { margin: 20px 0; }
+    .tab-list {
+      display: flex; gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0;
+    }
+    .tab-btn {
+      padding: 10px 20px;
+      background: none; border: none;
+      color: var(--text-muted); cursor: pointer;
+      font-size: 0.875rem; font-weight: 500;
+      font-family: inherit;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-panel { display: none; padding: 16px 0 0; }
+    .tab-panel.active { display: block; }
+
+    /* ── Version constraint badges ── */
+    .vc { display: inline-flex; align-items: center; gap: 6px; }
+    .vc-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem; padding: 2px 8px; border-radius: 4px;
+      font-weight: 500;
+    }
+    .vc-tag.exact { background: var(--accent-bg); color: var(--accent); border: 1px solid var(--accent); }
+    .vc-tag.range { background: var(--green-bg); color: var(--green); border: 1px solid var(--green); }
+    .vc-tag.latest { background: var(--yellow-bg); color: var(--yellow); border: 1px solid var(--yellow); }
+
+    /* ── Command reference ── */
+    .cmd-list { display: flex; flex-direction: column; gap: 1px; }
+    .cmd-item {
+      display: flex; gap: 16px; align-items: flex-start;
+      padding: 12px 16px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 0;
+      transition: background 0.15s;
+    }
+    .cmd-item:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+    .cmd-item:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+    .cmd-item:only-child { border-radius: var(--radius); }
+    .cmd-item:not(:last-child) { border-bottom: none; }
+    .cmd-item:hover { background: var(--accent-bg); }
+    .cmd-name { font-family: 'JetBrains Mono', monospace; color: var(--accent); font-size: 0.85rem; font-weight: 500; min-width: 200px; flex-shrink: 0; }
+    .cmd-desc { color: var(--text-muted); font-size: 0.875rem; }
+
+    /* ── Flow diagram ── */
+    .flow {
+      display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+      margin: 16px 0; padding: 20px;
+      background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+    .flow-node {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 0.8rem; font-weight: 500;
+      color: var(--text-secondary);
+      text-align: center;
+    }
+    .flow-node.source { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+    .flow-node.dest { border-color: var(--green); color: var(--green); background: var(--green-bg); }
+    .flow-arrow { color: var(--text-muted); font-size: 1.2rem; }
+
+    /* ── Scope comparison ── */
+    .scope-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+    .scope-card {
+      background: var(--bg-secondary); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px;
+    }
+    .scope-card h4 { margin-top: 0; }
+    .scope-card.local { border-top: 3px solid var(--accent); }
+    .scope-card.global { border-top: 3px solid var(--green); }
+
+    /* ── Search ── */
+    .search-wrap { position: relative; }
+    .search-input {
+      width: 100%; padding: 8px 12px 8px 36px;
+      background: var(--bg-tertiary); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text); font-family: inherit;
+      font-size: 0.875rem;
+      outline: none; transition: border-color 0.15s;
+    }
+    .search-input:focus { border-color: var(--accent); }
+    .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.9rem; }
+
+    /* ── Mobile ── */
+    .hamburger {
+      display: none; background: none; border: none;
+      color: var(--text); cursor: pointer; font-size: 1.2rem;
+      padding: 4px;
+    }
+    @media (max-width: 900px) {
+      .hamburger { display: flex; }
+      .sidebar { transform: translateX(-100%); transition: transform 0.25s; z-index: 90; }
+      .sidebar.open { transform: translateX(0); }
+      .main { margin-left: 0; padding: 24px 20px 60px; }
+      .header-nav { display: none; }
+      .scope-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 600px) {
+      .hero h1 { font-size: 1.8rem; }
+      .cards { grid-template-columns: 1fr; }
+    }
+
+    /* ── Anchor links ── */
+    h2[id], h3[id] { scroll-margin-top: calc(var(--header-height) + 16px); }
+
+    /* ── Misc ── */
+    hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+    .text-muted { color: var(--text-muted); font-size: 0.875rem; }
+    .highlight { background: rgba(88, 166, 255, 0.15); padding: 1px 3px; border-radius: 3px; }
+
+    /* hljs overrides */
+    .hljs { background: transparent !important; padding: 0 !important; }
+    [data-theme="light"] #hljs-theme { display: none; }
+  </style>
+</head>
+<body>
+  <!-- Light theme stylesheet -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljs-light" disabled />
+
+  <header>
+    <button class="hamburger" id="hamburgerBtn" aria-label="Toggle navigation">☰</button>
+    <a href="#" class="header-logo">
+      <span class="logo-badge">aom</span>
+      <span>AI Operation Manager</span>
+    </a>
+    <nav class="header-nav">
+      <a href="#getting-started">Getting Started</a>
+      <a href="#commands">Commands</a>
+      <a href="#configuration">Configuration</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#contributing">Contributing</a>
+    </nav>
+    <div class="header-right">
+      <span class="badge-version">v2.x</span>
+      <button class="btn-theme" id="themeToggle" title="Toggle theme">🌙</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <div style="padding: 0 12px 12px;">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input class="search-input" type="text" placeholder="Quick find…" id="sidebarSearch" />
+        </div>
+      </div>
+
+      <nav>
+        <div class="nav-section">
+          <div class="nav-label">Overview</div>
+          <a href="#overview" class="nav-link"><span class="icon">🏠</span> What is aom?</a>
+          <a href="#highlights" class="nav-link"><span class="icon">✨</span> Key Highlights</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-label">For Users</div>
+          <a href="#getting-started" class="nav-link"><span class="icon">🚀</span> Getting Started</a>
+          <div class="nav-sub">
+            <a href="#installation" class="nav-link">Installation</a>
+            <a href="#quick-start" class="nav-link">Quick Start</a>
+          </div>
+          <a href="#commands" class="nav-link"><span class="icon">⌨️</span> Commands</a>
+          <div class="nav-sub">
+            <a href="#cmd-init" class="nav-link">aom init</a>
+            <a href="#cmd-install" class="nav-link">aom install</a>
+            <a href="#cmd-list" class="nav-link">aom list</a>
+            <a href="#cmd-sync" class="nav-link">aom sync</a>
+            <a href="#cmd-info" class="nav-link">aom info</a>
+            <a href="#cmd-outdated" class="nav-link">aom outdated</a>
+            <a href="#cmd-view" class="nav-link">aom view</a>
+            <a href="#cmd-remove" class="nav-link">aom remove</a>
+            <a href="#cmd-detect" class="nav-link">aom detect</a>
+            <a href="#cmd-env" class="nav-link">aom env</a>
+            <a href="#cmd-deploy" class="nav-link">aom deploy</a>
+          </div>
+          <a href="#configuration" class="nav-link"><span class="icon">⚙️</span> Configuration</a>
+          <div class="nav-sub">
+            <a href="#config-file" class="nav-link">Config File</a>
+            <a href="#version-constraints" class="nav-link">Version Constraints</a>
+            <a href="#global-settings" class="nav-link">Global Settings</a>
+          </div>
+          <a href="#workflows" class="nav-link"><span class="icon">🔄</span> Common Workflows</a>
+          <a href="#agents" class="nav-link"><span class="icon">🤖</span> Supported AI Agents</a>
+          <a href="#troubleshooting" class="nav-link"><span class="icon">🛠️</span> Troubleshooting</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-label">For Developers</div>
+          <a href="#architecture" class="nav-link"><span class="icon">🏗️</span> Architecture</a>
+          <div class="nav-sub">
+            <a href="#resolution-flow" class="nav-link">Resolution Flow</a>
+            <a href="#adapters" class="nav-link">Adapter Pattern</a>
+            <a href="#registry" class="nav-link">Registry Format</a>
+          </div>
+          <a href="#development" class="nav-link"><span class="icon">🔧</span> Dev Setup</a>
+          <a href="#testing" class="nav-link"><span class="icon">🧪</span> Testing</a>
+          <a href="#cicd" class="nav-link"><span class="icon">🔁</span> CI/CD</a>
+          <a href="#versioning-skills" class="nav-link"><span class="icon">🏷️</span> Versioning Skills</a>
+        </div>
+        <div class="nav-section">
+          <div class="nav-label">Project</div>
+          <a href="#contributing" class="nav-link"><span class="icon">🤝</span> Contributing</a>
+          <a href="#portability" class="nav-link"><span class="icon">🌐</span> Portability</a>
+        </div>
+      </nav>
+    </aside>
+
+    <main class="main" id="mainContent">
+
+      <!-- ── Hero ── -->
+      <div class="hero" id="overview">
+        <h1>AI Operation Manager</h1>
+        <p>A zero-dependency Python CLI that installs and manages versioned AI skills — slash commands, agents, hooks — across all your projects. Skills are versioned by git tag; each project independently pins the versions it needs.</p>
+        <div class="hero-badges">
+          <span class="hero-badge green">✓ Zero dependencies</span>
+          <span class="hero-badge blue">Python 3.10+</span>
+          <span class="hero-badge purple">Multi-agent</span>
+          <span class="hero-badge">MIT License</span>
+        </div>
+      </div>
+
+      <!-- ── Key Highlights ── -->
+      <section id="highlights">
+        <h2>Key Highlights</h2>
+        <div class="cards">
+          <div class="card">
+            <div class="card-icon">🏷️</div>
+            <h4>Git-backed versioning</h4>
+            <p>Skills live in a remote git repo tagged with semantic versions (e.g. <code>skills/create-jira-story@1.0.0</code>)</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">📌</div>
+            <h4>Per-project pinning</h4>
+            <p>Projects declare requirements in their AI agent config file. Different projects pin different versions simultaneously.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">🤖</div>
+            <h4>Multi-agent support</h4>
+            <p>Works with Claude Code, Codex, Kiro, Cursor, OpenCode, and Aider — each with its own directory layout.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">📦</div>
+            <h4>Zero runtime deps</h4>
+            <p>Pure Python stdlib only. No pip install needed when using source mode. Requires only git on PATH.</p>
+          </div>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Getting Started ── -->
+      <section id="getting-started">
+        <h2>Getting Started</h2>
+
+        <h3 id="installation">Installation</h3>
+
+        <div class="tabs">
+          <div class="tab-list">
+            <button class="tab-btn active" data-tab="binary">Binary (Recommended)</button>
+            <button class="tab-btn" data-tab="manual">Manual</button>
+            <button class="tab-btn" data-tab="source">From Source</button>
+          </div>
+
+          <div class="tab-panel active" id="tab-binary">
+            <p>Download the latest binary for your platform from the <strong>Releases</strong> page, then run <code>aom deploy</code> to install system-wide:</p>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Platform</th><th>File</th></tr></thead>
+                <tbody>
+                  <tr><td>Linux (x86-64)</td><td><code>aom-linux-amd64</code></td></tr>
+                  <tr><td>Windows (x86-64)</td><td><code>aom-windows-amd64.exe</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="tabs">
+              <div class="tab-list">
+                <button class="tab-btn active" data-tab="linux-deploy">Linux / macOS</button>
+                <button class="tab-btn" data-tab="windows-deploy">Windows</button>
+              </div>
+              <div class="tab-panel active" id="tab-linux-deploy">
+                <div class="terminal">
+                  <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">bash</span></div>
+                  <div class="terminal-body">
+                    <div><span class="prompt">$ </span>chmod +x aom-linux-amd64</div>
+                    <div><span class="prompt">$ </span>./aom-linux-amd64 deploy</div>
+                    <div class="success">→ Deployed to ~/.local/bin/aom and added to PATH</div>
+                  </div>
+                </div>
+              </div>
+              <div class="tab-panel" id="tab-windows-deploy">
+                <div class="terminal">
+                  <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">PowerShell</span></div>
+                  <div class="terminal-body">
+                    <div><span class="prompt">PS&gt; </span>.\aom-windows-amd64.exe deploy</div>
+                    <div class="success">→ Deployed to %LOCALAPPDATA%\ai-operation-manager\bin\aom.exe</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <p>After deploying, open a new terminal and verify:</p>
+            <div class="terminal">
+              <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">terminal</span></div>
+              <div class="terminal-body"><div><span class="prompt">$ </span>aom --help</div></div>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="tab-manual">
+            <p>Copy the binary manually to a directory on your PATH:</p>
+            <div class="terminal">
+              <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">bash</span></div>
+              <div class="terminal-body">
+                <div><span class="comment"># Linux / macOS</span></div>
+                <div><span class="prompt">$ </span>chmod +x aom-linux-amd64</div>
+                <div><span class="prompt">$ </span>sudo mv aom-linux-amd64 /usr/local/bin/aom</div>
+              </div>
+            </div>
+            <div class="terminal">
+              <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">PowerShell</span></div>
+              <div class="terminal-body">
+                <div><span class="comment"># Windows — copy to any directory on your PATH</span></div>
+                <div><span class="prompt">PS&gt; </span>Move-Item aom-windows-amd64.exe C:\tools\aom.exe</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-panel" id="tab-source">
+            <p>Clone the repository and install in editable mode:</p>
+            <div class="terminal">
+              <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">bash</span></div>
+              <div class="terminal-body">
+                <div><span class="prompt">$ </span>git clone git@github.com:yourorg/ai-operation-manager.git ~/aom</div>
+                <div><span class="prompt">$ </span>cd ~/aom && python -m venv .venv</div>
+                <div><span class="prompt">$ </span>source .venv/bin/activate</div>
+                <div><span class="prompt">$ </span>pip install -e ".[dev]"</div>
+                <div><span class="prompt">$ </span>python -m aom --help</div>
+              </div>
+            </div>
+            <div class="callout info">
+              <span class="callout-icon">ℹ️</span>
+              <div class="callout-content"><p>Add <code>export PATH="$HOME/aom/bin:$PATH"</code> to your shell profile to use the <code>aom</code> command directly from source.</p></div>
+            </div>
+          </div>
+        </div>
+
+        <h3 id="quick-start">Quick Start</h3>
+        <p>Three steps to get up and running on a new project:</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-content">
+              <h4>Initialize the project</h4>
+              <p>Run <code>aom init</code> from your project root. The wizard detects your AI agent config file, asks for remote repo URLs, and optionally fetches the tag index.</p>
+              <div class="terminal">
+                <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom init</span></div>
+                <div class="terminal-body">
+                  <div><span class="prompt">$ </span>aom init</div>
+                  <div class="output"></div>
+                  <div class="output">  Directory: /home/user/my-project</div>
+                  <div class="output"></div>
+                  <div class="output">  Found: CLAUDE.md  →  ClaudeCode</div>
+                  <div class="output">  Use this config file? [Y/n]:</div>
+                  <div class="output"></div>
+                  <div class="output">  Repository URL(s): git@gitlab.com:myorg/ai-grimoire.git</div>
+                  <div class="success">  ✓ Saved 1 repository URL(s) to settings.json</div>
+                  <div class="success">  ✓ git@gitlab.com:myorg/ai-grimoire.git — 12 skill version(s)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-content">
+              <h4>Install skills (they are saved to config automatically)</h4>
+              <p>Use <code>aom install</code> to add skills — the requirement is saved to <code>.aom/config.json</code> automatically (like npm):</p>
+              <div class="terminal">
+                <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom install</span></div>
+                <div class="terminal-body">
+                  <div><span class="prompt">$ </span>aom install create-jira-story:1.0.0</div>
+                  <div><span class="prompt">$ </span>aom install design-workflow:>=1.1.0</div>
+                  <div><span class="prompt">$ </span>aom install evaluate-workflow</div>
+                </div>
+              </div>
+              <p>Or edit <code>.aom/config.json</code> directly:</p>
+              <pre><div class="code-header"><span class="code-lang">json · .aom/config.json (required section)</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
+  "required": {
+    "create-jira-story": "1.0.0",
+    "design-workflow": ">=1.1.0",
+    "evaluate-workflow": "latest"
+  }
+}</code></pre>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-content">
+              <h4>Install everything</h4>
+              <p>Run <code>aom sync</code> — it reads the requirements and installs all missing skills. Any teammate cloning the project runs the same command.</p>
+              <div class="terminal">
+                <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">terminal</span></div>
+                <div class="terminal-body">
+                  <div><span class="prompt">$ </span>aom sync</div>
+                  <div class="success">  ✓ create-jira-story@1.0.0  →  [local:ClaudeCode]</div>
+                  <div class="success">  ✓ design-workflow@1.1.0    →  [local:ClaudeCode]</div>
+                  <div class="success">  ✓ evaluate-workflow@2.0.0  →  [local:ClaudeCode]</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Commands ── -->
+      <section id="commands">
+        <h2>Commands</h2>
+        <p>Quick reference for all available commands:</p>
+
+        <div class="cmd-list">
+          <div class="cmd-item"><span class="cmd-name">aom init</span><span class="cmd-desc">Interactive setup: detect agents, write .aom/config.json</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom init global</span><span class="cmd-desc">Interactive setup for global settings (agents, repos, paths)</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom install NAME[:VER]</span><span class="cmd-desc">Install an operation and save to config (like npm)</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom list</span><span class="cmd-desc">Show available and installed versions across all scopes</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom list requirements</span><span class="cmd-desc">Show only skills declared as requirements in the project config</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom sync</span><span class="cmd-desc">Sync all required skills from config (default), sync agents, or clean</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom info NAME[:VER]</span><span class="cmd-desc">Show rich metadata for an operation without installing it</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom outdated</span><span class="cmd-desc">Report installed operations where a newer stable version is available</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom view NAME versions</span><span class="cmd-desc">List all available versions of an operation from all sources</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom update NAME</span><span class="cmd-desc">Reinstall the latest stable version of a skill</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom remove NAME</span><span class="cmd-desc">Remove an installed operation and its config entry</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom detect</span><span class="cmd-desc">Detect AI agents, show supported status, confirm changes</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom fetch</span><span class="cmd-desc">Refresh the operation index from all remote repositories</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom env</span><span class="cmd-desc">Show agents (supported/unsupported), repos, and install locations</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom deploy</span><span class="cmd-desc">Install the aom binary system-wide and add to PATH</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom undeploy [--purge]</span><span class="cmd-desc">Remove the binary (and optionally all global data + local .aom folders)</span></div>
+        </div>
+
+        <!-- aom init -->
+        <h3 id="cmd-init">aom init</h3>
+        <p>Interactive setup wizard. Detects supported AI agent config files, lets you select one or multiple active agents, asks for remote repository URLs and optional local paths, and writes everything to <code>.aom/config.json</code>. Use <code>aom init global</code> to configure global settings.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom init</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom init</div>
+            <div class="output">  Found: CLAUDE.md → ClaudeCode, AGENTS.md → Codex</div>
+            <div class="output">  Select agents [all]: <span class="info">ClaudeCode, Codex</span></div>
+            <div class="output">  Repository URL(s): git@gitlab.com:myorg/ai-grimoire.git</div>
+            <div class="success">  ✓ Saved agents to .aom/config.json</div>
+            <div class="success">  ✓ Fetched. 17 total skill version(s) available.</div>
+          </div>
+        </div>
+        <p><code>aom init</code> writes configuration to <code>.aom/config.json</code>:</p>
+        <pre><div class="code-header"><span class="code-lang">json · .aom/config.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
+  "version": 1,
+  "agents": ["ClaudeCode", "Codex"],
+  "repositories": [
+    { "url": "git@gitlab.com:myorg/ai-grimoire.git" }
+  ],
+  "local_paths": [],
+  "required": {}
+}</code></pre>
+
+        <!-- aom install -->
+        <h3 id="cmd-install">aom install</h3>
+        <p>Installs an operation into the target scope and saves the requirement to <code>.aom/config.json</code> (or global settings with <code>--global</code>), similar to how <code>npm install</code> saves to <code>package.json</code>. Requires <code>aom init</code> to have been run first.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom install examples</span></div>
+          <div class="terminal-body">
+            <div><span class="comment"># Latest stable, local scope</span></div>
+            <div><span class="prompt">$ </span>aom install create-jira-story</div>
+            <div></div>
+            <div><span class="comment"># Exact version, local scope</span></div>
+            <div><span class="prompt">$ </span>aom install create-jira-story:1.0.0</div>
+            <div></div>
+            <div><span class="comment"># Minimum version, global scope</span></div>
+            <div><span class="prompt">$ </span>aom install design-workflow:>=1.0.0 --global</div>
+            <div></div>
+            <div><span class="comment"># Skip if already installed</span></div>
+            <div><span class="prompt">$ </span>aom install create-jira-story --no-overwrite</div>
+            <div></div>
+            <div><span class="comment"># Refresh tag index before installing</span></div>
+            <div><span class="prompt">$ </span>aom install create-jira-story --fetch</div>
+          </div>
+        </div>
+        <div class="callout info">
+          <span class="callout-icon">💡</span>
+          <div class="callout-content"><p>With multiple selected agents, install runs against each one and prints scope labels like <code>[local:Codex]</code>, <code>[local:ClaudeCode]</code>.</p></div>
+        </div>
+
+        <!-- aom list -->
+        <h3 id="cmd-list">aom list</h3>
+        <p>Shows available and installed versions. Aggregates across all selected agents in multi-agent mode.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom list</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom list</div>
+            <div class="output"></div>
+            <div class="output">SKILL                    LOCAL    GLOBAL   LATEST</div>
+            <div class="output">-------------------------------------------------</div>
+            <div class="output">create-jira-story        —        1.0.0    1.2.0</div>
+            <div class="output">design-workflow          1.0.0    —        1.1.0</div>
+            <div class="output">evaluate-skill           —        —        1.0.0</div>
+          </div>
+        </div>
+        <p>Use <code>aom list requirements</code> to see only skills declared in your config, with their pinned constraints:</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom list requirements</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom list requirements</div>
+            <div class="output"></div>
+            <div class="output">SKILL                    REQUIREMENT  LOCAL    GLOBAL   LATEST</div>
+            <div class="output">--------------------------------------------------------------</div>
+            <div class="output">create-jira-story        1.0.0        1.0.0    —        1.2.0</div>
+            <div class="output">design-workflow          >=1.1.0      1.1.0    —        1.2.0</div>
+            <div class="output">evaluate-skill           latest       —        —        1.0.0</div>
+          </div>
+        </div>
+
+        <!-- aom sync -->
+        <h3 id="cmd-sync">aom sync</h3>
+        <p>Reads requirements from <code>.aom/config.json</code> and installs missing or outdated operations for all selected agents. Falls back to agent config files if no requirements are in the config.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom sync</span></div>
+          <div class="terminal-body">
+            <div><span class="comment"># Default: install from requirements</span></div>
+            <div><span class="prompt">$ </span>aom sync</div>
+            <div></div>
+            <div><span class="comment"># Preview without installing</span></div>
+            <div><span class="prompt">$ </span>aom sync --dry-run</div>
+            <div></div>
+            <div><span class="comment"># Fetch latest tags first, then sync</span></div>
+            <div><span class="prompt">$ </span>aom sync --fetch</div>
+            <div></div>
+            <div><span class="comment"># Sync + remove local extras not in config</span></div>
+            <div><span class="prompt">$ </span>aom sync clean</div>
+            <div></div>
+            <div><span class="comment"># Replicate one agent's config/content to others</span></div>
+            <div><span class="prompt">$ </span>aom sync agents</div>
+          </div>
+        </div>
+
+        <!-- aom info -->
+        <h3 id="cmd-info">aom info</h3>
+        <p>Inspect a skill's full metadata before installing. Reads the definition file from the remote repo — no installation required.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom info create-jira-story</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom info create-jira-story</div>
+            <div class="output"></div>
+            <div class="output">create-jira-story  @1.2.0  [skills]  (git)</div>
+            <div class="output">────────────────────────────────────────────────────────</div>
+            <div class="output">description         Generate a Jira ticket description from a</div>
+            <div class="output">                    standard template. Fills in Summary,</div>
+            <div class="output">                    Details, and Testing sections.</div>
+            <div class="output">author              John Doe</div>
+            <div class="output">version             1.2.0</div>
+            <div class="output">tags                ai, jira, productivity</div>
+            <div class="output"></div>
+            <div class="output">Install status</div>
+            <div class="output">  local   not installed</div>
+            <div class="output">  global  not installed</div>
+            <div class="output"></div>
+            <div class="info">  To install: aom install create-jira-story:1.2.0</div>
+          </div>
+        </div>
+        <p>Use <code>--json</code> for machine-readable output containing all frontmatter fields and install status.</p>
+
+        <!-- aom outdated -->
+        <h3 id="cmd-outdated">aom outdated</h3>
+        <p>Focused report of installed operations where a newer stable version exists in the remote. Pre-release versions are never shown as "latest".</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom outdated</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom outdated</div>
+            <div class="output"></div>
+            <div class="output">SKILL                    INSTALLED   LATEST</div>
+            <div class="output">-------------------------------------------</div>
+            <div class="output">create-jira-story        1.0.0       1.2.0</div>
+            <div class="output">design-workflow          1.1.0       1.3.0</div>
+          </div>
+        </div>
+
+        <!-- aom view -->
+        <h3 id="cmd-view">aom view</h3>
+        <p>Inspect a specific operation. The <code>versions</code> subcommand lists all available versions from all sources.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom view create-jira-story versions</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom view create-jira-story versions</div>
+            <div class="output"></div>
+            <div class="output">Versions of create-jira-story</div>
+            <div class="output">--------------------------------------------------</div>
+            <div class="output">  VERSION               SOURCE           STATUS</div>
+            <div class="output">  -------               ------           ------</div>
+            <div class="success">  1.2.0                 repo             stable</div>
+            <div class="success">  1.1.0                 global, repo     stable  [installed]</div>
+            <div class="success">  1.0.0                 local, repo      stable  [installed]</div>
+            <div class="info">  0.9.0-SNAPSHOT        repo             snapshot</div>
+          </div>
+        </div>
+
+        <!-- aom remove -->
+        <h3 id="cmd-remove">aom remove</h3>
+        <p>Removes the skill files and also removes the entry from <code>.aom/config.json</code> (or global settings with <code>--global</code>).</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom remove</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom remove create-jira-story</div>
+            <div><span class="prompt">$ </span>aom remove create-jira-story --global</div>
+          </div>
+        </div>
+
+        <!-- aom detect -->
+        <h3 id="cmd-detect">aom detect</h3>
+        <p>Scans the project directory for known AI agent folders and config files. Shows which agents are found and whether they are currently supported. Asks for confirmation to update the supported list, and removes agents that are no longer detected.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom detect</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom detect</div>
+            <div class="output"></div>
+            <div class="output">Detected AI Agents</div>
+            <div class="output">----------------------------------------</div>
+            <div class="output">  Claude       (.claude)  <span class="success">[✓ supported]</span></div>
+            <div class="output">  Codex        (.agents)  <span class="success">[✓ supported]</span></div>
+            <div class="output">  Kiro         (.kiro)    <span class="info">[not supported]</span></div>
+            <div class="output"></div>
+            <div class="output">  New agents found: Kiro</div>
+            <div class="output"></div>
+            <div class="output">  Confirm: support all detected agents? [Y/n]:</div>
+            <div class="success">  ✓ Updated supported agents: Claude, Codex, Kiro</div>
+          </div>
+        </div>
+
+        <!-- aom env -->
+        <h3 id="cmd-env">aom env</h3>
+        <p>Shows global and local AI agents with supported status, configured repositories, and install locations for supported agents only.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom env</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom env</div>
+            <div class="output"></div>
+            <div class="output">Global AI Agents</div>
+            <div class="output">-----------------------------------------</div>
+            <div class="output">  Agent: Claude <span class="success">[✓ supported]</span>, Codex <span class="success">[✓ supported]</span>, Kiro</div>
+            <div class="output">  Config: CLAUDE.md, AGENTS.md</div>
+            <div class="output"></div>
+            <div class="output">Local AI Agents</div>
+            <div class="output">-----------------------------------------</div>
+            <div class="output">  Agent: Codex <span class="success">[✓ supported]</span>, Kiro <span class="success">[✓ supported]</span></div>
+            <div class="output">  Config: AGENTS.md, .kiro</div>
+            <div class="output"></div>
+            <div class="output">Skills Repositories (remote)</div>
+            <div class="output">-----------------------------------------</div>
+            <div class="success">  [1] git@gitlab.com:myorg/ai-grimoire.git [✓ cloned]</div>
+            <div class="output">      tagged versions            12</div>
+            <div class="output"></div>
+            <div class="output">Install locations</div>
+            <div class="output">-----------------------------------------</div>
+            <div class="output">  global : ~/.claude, ~/.agents</div>
+            <div class="output">  local  : /home/user/my-project/.agents, /home/user/my-project/.kiro</div>
+          </div>
+        </div>
+
+        <!-- aom deploy -->
+        <h3 id="cmd-deploy">aom deploy / aom undeploy</h3>
+        <p>Copies the running aom executable to a system directory and adds it to PATH. Only available when running from a pre-built binary.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Platform</th><th>Deploy location</th></tr></thead>
+            <tbody>
+              <tr><td>Linux / macOS</td><td><code>~/.local/bin/aom</code></td></tr>
+              <tr><td>Windows</td><td><code>%LOCALAPPDATA%\ai-operation-manager\bin\aom.exe</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">deploy / undeploy</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom deploy</div>
+            <div><span class="prompt">$ </span>aom undeploy</div>
+            <div><span class="prompt">$ </span>aom undeploy --purge   <span class="comment"># also removes cache, settings, local .aom folders, installed ops</span></div>
+          </div>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Configuration ── -->
+      <section id="configuration">
+        <h2>Configuration</h2>
+
+        <h3 id="config-file">Local Config File (.aom/config.json)</h3>
+        <p><code>aom init</code> creates a <code>.aom/config.json</code> file in the project root. This is the single source of truth for local configuration. Skills are added via <code>aom install</code> (like npm) and removed via <code>aom remove</code>.</p>
+
+        <div class="scope-grid">
+          <div class="scope-card local">
+            <h4>Local config (.aom/config.json)</h4>
+            <p>Project-specific configuration:</p>
+            <pre><div class="code-header"><span class="code-lang">json · .aom/config.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
+  "version": 1,
+  "agents": ["ClaudeCode", "Codex"],
+  "repositories": [
+    { "url": "git@gitlab.com:myorg/ai-grimoire.git" }
+  ],
+  "local_paths": [],
+  "required": {
+    "create-jira-story": "1.0.0",
+    "design-workflow": ">=1.0.0",
+    "evaluate-workflow": "latest"
+  }
+}</code></pre>
+          </div>
+          <div class="scope-card global">
+            <h4>Global settings (aom init global)</h4>
+            <p>Shared across all projects:</p>
+            <pre><div class="code-header"><span class="code-lang">json · settings.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
+  "version": 3,
+  "agents": ["ClaudeCode", "Codex"],
+  "repositories": [
+    { "url": "git@gitlab.com:myorg/ai-grimoire.git" }
+  ],
+  "local_paths": ["/home/user/my-local-skills"],
+  "required": {},
+  "initialized_paths": ["/home/user/my-project"]
+}</code></pre>
+          </div>
+        </div>
+
+        <div class="callout info">
+          <span class="callout-icon">ℹ️</span>
+          <div class="callout-content"><p>Config files are versioned and backward compatible. New fields have sensible defaults so older configs are transparently upgraded on read.</p></div>
+        </div>
+
+        <h3 id="version-constraints">Version Constraints</h3>
+        <p>Three syntaxes are supported for pinning skill versions:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Syntax</th><th>Meaning</th><th>Example</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="vc-tag exact">1.0.0</span></td>
+                <td>Exact version — installs precisely this version</td>
+                <td><code>create-jira-story: "1.0.0"</code></td>
+              </tr>
+              <tr>
+                <td><span class="vc-tag range">>=1.2.0</span></td>
+                <td>Minimum version — installs the highest satisfying version</td>
+                <td><code>design-workflow: ">=1.1.0"</code></td>
+              </tr>
+              <tr>
+                <td><span class="vc-tag latest">latest</span> or <span class="vc-tag latest">*</span></td>
+                <td>Highest stable version — pre-releases excluded</td>
+                <td><code>evaluate-workflow: "latest"</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout warning">
+          <span class="callout-icon">⚠️</span>
+          <div class="callout-content"><p>Pre-release versions (e.g. <code>1.2.0-SNAPSHOT</code>) are never selected by <code>latest</code> or <code>*</code>. Use an exact version constraint to install pre-releases.</p></div>
+        </div>
+
+        <h3 id="global-settings">Global Settings</h3>
+        <p>Global settings are managed by <code>aom init global</code> and stored at a platform-specific location:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Platform</th><th>Settings file</th></tr></thead>
+            <tbody>
+              <tr><td>Linux / macOS</td><td><code>~/.config/aom/settings.json</code></td></tr>
+              <tr><td>Windows</td><td><code>%APPDATA%\aom\settings.json</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <pre><div class="code-header"><span class="code-lang">json · settings.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
+  "version": 3,
+  "agents": ["ClaudeCode", "Codex"],
+  "repositories": [
+    { "url": "git@gitlab.com:myorg/ai-grimoire.git" },
+    { "url": "git@github.com:myorg/more-skills.git" }
+  ],
+  "local_paths": ["/home/user/my-local-skills"],
+  "required": {},
+  "initialized_paths": ["/home/user/my-project"],
+  "fetch_ttl_seconds": 3600
+}</code></pre>
+      </section>
+
+      <hr />
+
+      <!-- ── Common Workflows ── -->
+      <section id="workflows">
+        <h2>Common Workflows</h2>
+
+        <h3>First-time project setup</h3>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">new project</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>cd ~/my-project && aom init</div>
+            <div><span class="prompt">$ </span>aom list</div>
+            <div><span class="prompt">$ </span>aom view create-jira-story versions</div>
+            <div><span class="prompt">$ </span>aom install create-jira-story:1.0.0</div>
+          </div>
+        </div>
+
+        <h3>Team shares requirements via config</h3>
+        <p>Commit the <code>Skills Requirements</code> section in your <code>CLAUDE.md</code>. Any developer cloning the project runs:</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">new clone</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>git clone git@github.com:myorg/my-project.git</div>
+            <div><span class="prompt">$ </span>cd my-project && aom sync</div>
+            <div class="success">  ✓ Cloned remote repo on first use</div>
+            <div class="success">  ✓ Installed 3 required skill(s)</div>
+          </div>
+        </div>
+
+        <h3>Per-project version pinning</h3>
+        <p>Multiple projects can pull from the same remote repo but use different versions:</p>
+        <pre><div class="code-header"><span class="code-lang">yaml · Project A — CLAUDE.md</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-yaml">required:
+  create-jira-story: "1.0.0"
+  design-workflow: "1.0.0"</code></pre>
+        <pre><div class="code-header"><span class="code-lang">yaml · Project B — CLAUDE.md</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-yaml">required:
+  create-jira-story: "latest"
+  design-workflow: ">=1.1.0"</code></pre>
+
+        <h3>Refresh and preview</h3>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">dry run</span></div>
+          <div class="terminal-body">
+            <div><span class="comment"># Fetch latest tags, then preview what would change</span></div>
+            <div><span class="prompt">$ </span>aom sync --fetch --dry-run</div>
+          </div>
+        </div>
+
+        <h3>System-wide shared skills</h3>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">global install</span></div>
+          <div class="terminal-body">
+            <div><span class="comment"># Available in all projects; local scope takes precedence</span></div>
+            <div><span class="prompt">$ </span>aom install evaluate-workflow:1.0.0 --global</div>
+          </div>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Supported Agents ── -->
+      <section id="agents">
+        <h2>Supported AI Agents</h2>
+        <p>aom detects agents from config files and can persist selected active agents via <code>.aom/config.json</code> after <code>aom init</code>.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Config file</th><th>Agent</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><code>CLAUDE.md</code></td><td>ClaudeCode</td><td><span style="color:var(--green)">✓ Supported</span></td></tr>
+              <tr><td><code>AGENTS.md</code></td><td>Codex</td><td><span style="color:var(--green)">✓ Supported</span></td></tr>
+              <tr><td><code>.kiro</code></td><td>Kiro</td><td><span style="color:var(--green)">✓ Supported</span></td></tr>
+              <tr><td><code>.cursorrules</code></td><td>Cursor</td><td><span style="color:var(--yellow)">Planned</span></td></tr>
+              <tr><td><code>opencode.json</code></td><td>OpenCode</td><td><span style="color:var(--yellow)">Planned</span></td></tr>
+              <tr><td><code>.aider.conf.yml</code></td><td>Aider</td><td><span style="color:var(--yellow)">Planned</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout info">
+          <span class="callout-icon">💡</span>
+          <div class="callout-content"><p>With multiple selected agents, <code>install</code>, <code>list</code>, <code>sync</code>, and <code>remove</code> operate across all agents in their respective directories.</p></div>
+        </div>
+
+        <h3>Installation Scopes</h3>
+        <div class="scope-grid">
+          <div class="scope-card local">
+            <h4>Local scope</h4>
+            <p>Location: <code>&lt;project&gt;/&lt;agent-dir&gt;/</code></p>
+            <p>Project-specific skills pinned via <code>aom sync</code>. Committed to the project repo (or <code>.gitignore</code>d).</p>
+          </div>
+          <div class="scope-card global">
+            <h4>Global scope</h4>
+            <p>Location: <code>~/&lt;agent-dir&gt;/</code></p>
+            <p>Available in all projects. Install with <code>--global</code>. Local takes precedence when both exist.</p>
+          </div>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Troubleshooting ── -->
+      <section id="troubleshooting">
+        <h2>Troubleshooting</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Problem</th><th>Solution</th></tr></thead>
+            <tbody>
+              <tr><td><code>git</code> not found</td><td>Ensure <code>git</code> is installed and on your PATH</td></tr>
+              <tr><td>SSH authentication fails</td><td>Verify your SSH key is configured for the remote repository</td></tr>
+              <tr><td>No skills found after <code>aom list</code></td><td>Run <code>aom list --fetch</code> to refresh the tag index from the remote</td></tr>
+              <tr><td>Wrong agent detected</td><td>Run <code>aom init</code> again to reconfigure</td></tr>
+              <tr><td><code>aom sync</code> skips a skill</td><td>Check the version constraint in your config matches an existing tag</td></tr>
+              <tr><td>Skills not visible in new project</td><td>Run <code>aom init</code> — project may not have a <code>.aom/config.json</code> yet</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Architecture ── -->
+      <section id="architecture">
+        <h2>Architecture</h2>
+        <p>aom is built around a clean pipeline: sources → discovery → resolution → installation.</p>
+
+        <div class="flow">
+          <div class="flow-node source">Remote Git Repos<br/><small>Tagged skill versions</small></div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node">Local Cache<br/><small>Bare clone (blob-less)</small></div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node">Structure Adapters<br/><small>Suffix / Dir / Metadata</small></div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node">Resolver<br/><small>Version constraints</small></div>
+          <span class="flow-arrow">→</span>
+          <div class="flow-node dest">Installer<br/><small>Local / Global scope</small></div>
+        </div>
+
+        <h3 id="resolution-flow">Key Module Responsibilities</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Module</th><th>Responsibility</th></tr></thead>
+            <tbody>
+              <tr><td><code>cli.py</code></td><td>Argument parsing and command dispatch (init, install, list, sync, remove, update, env, fetch)</td></tr>
+              <tr><td><code>config.py</code></td><td>Agent detection via <code>AGENT_MAP</code>, path resolution for global/local dirs</td></tr>
+              <tr><td><code>models.py</code></td><td><code>Version</code> (semver with prerelease), <code>SkillRecord</code>, <code>VersionRequirement</code> dataclasses</td></tr>
+              <tr><td><code>git.py</code></td><td><code>GitRepo</code>: bare clone management, tag listing, lazy blob extraction</td></tr>
+              <tr><td><code>discovery.py</code></td><td>Filesystem scanning with adapter chain + git repository scanning</td></tr>
+              <tr><td><code>manifest.py</code></td><td>Parses <code>Skills Requirements</code> and <code>Skills Source</code> YAML blocks from config files</td></tr>
+              <tr><td><code>settings.py</code></td><td>Global user settings JSON persistence (XDG on Linux, <code>%APPDATA%</code> on Windows)</td></tr>
+              <tr><td><code>resolver.py</code></td><td>Matches version constraints (exact, <code>>=</code>, latest, <code>*</code>) against discovered SkillRecords</td></tr>
+              <tr><td><code>installer.py</code></td><td>Extracts blobs from git or copies local files into the target scope directory</td></tr>
+              <tr><td><code>registry.py</code></td><td>JSON registry tracks what's installed per scope</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="adapters">Adapter Pattern</h3>
+        <p>Three structure adapters detect how skills are laid out on disk. They're tried in priority order via an adapter chain in <code>discovery.py</code>:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Adapter</th><th>On-disk layout</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>SuffixAdapter</code></td><td><code>name@1.0.0/</code></td><td>Version in dir name; requires renaming on release</td></tr>
+              <tr><td><code>DirAdapter</code></td><td><code>name/1.0.0/</code></td><td>Multiple versions coexist; deeper nesting</td></tr>
+              <tr><td><code>MetadataAdapter</code></td><td>version in frontmatter</td><td><strong>Recommended</strong> — stable paths, version co-located with definition</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="registry">Registry Format</h3>
+        <p>Stored inside the agent directory as <code>registry.json</code>:</p>
+        <pre><div class="code-header"><span class="code-lang">json · .claude/registry.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
+  "version": 1,
+  "installed": {
+    "skills/complex-evaluator": "1.0.2",
+    "commands/deploy-skills": "1.0.0"
+  },
+  "updated_at": "2026-03-27T12:00:00+00:00"
+}</code></pre>
+
+        <h3>Git Tag Convention</h3>
+        <p>Skills repositories use structured tags to version each skill independently:</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">git tags</span></div>
+          <div class="terminal-body">
+            <div class="output">skills/create-jira-story@1.0.0</div>
+            <div class="output">skills/design-workflow@1.0.0</div>
+            <div class="output">commands/deploy-skills@2.0.0</div>
+            <div class="output">agents/my-agent@1.0.0</div>
+          </div>
+        </div>
+        <p>The <code>GitRepo</code> class maintains a local bare clone using <code>--filter=blob:none</code> (no file contents downloaded upfront). Blobs are fetched lazily when a skill is actually installed.</p>
+      </section>
+
+      <hr />
+
+      <!-- ── Development ── -->
+      <section id="development">
+        <h2>Development Setup</h2>
+        <h3>Prerequisites</h3>
+        <ul>
+          <li>Python 3.10+</li>
+          <li><code>git</code> on PATH</li>
+          <li>GNU Make (optional — <code>winget install GnuWin32.Make</code> on Windows)</li>
+        </ul>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">local setup</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>git clone git@github.com:yourorg/ai-operation-manager.git</div>
+            <div><span class="prompt">$ </span>cd ai-operation-manager</div>
+            <div><span class="prompt">$ </span>python -m venv .venv && source .venv/bin/activate</div>
+            <div><span class="prompt">$ </span>pip install -e ".[dev]"</div>
+            <div><span class="prompt">$ </span>python -m aom --help</div>
+          </div>
+        </div>
+
+        <h3>Build Commands</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Command</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td><code>make build</code></td><td>Build platform-native executable via PyInstaller</td></tr>
+              <tr><td><code>make test</code></td><td>Run pytest with 60% coverage minimum</td></tr>
+              <tr><td><code>make lint</code></td><td>flake8 + black --check</td></tr>
+              <tr><td><code>make format</code></td><td>Auto-format with black</td></tr>
+              <tr><td><code>make clean</code></td><td>Remove build artifacts</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Testing ── -->
+      <section id="testing">
+        <h2>Testing</h2>
+        <p>The test suite uses pytest with coverage reporting. CI runs across Python 3.10, 3.11, and 3.12 on both Ubuntu and Windows.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">pytest</span></div>
+          <div class="terminal-body">
+            <div><span class="comment"># Full suite with coverage</span></div>
+            <div><span class="prompt">$ </span>pytest</div>
+            <div></div>
+            <div><span class="comment"># Faster run without coverage</span></div>
+            <div><span class="prompt">$ </span>pytest --no-cov</div>
+            <div></div>
+            <div><span class="comment"># Single test file</span></div>
+            <div><span class="prompt">$ </span>pytest tests/test_models.py -v</div>
+            <div></div>
+            <div><span class="comment"># Single test case</span></div>
+            <div><span class="prompt">$ </span>pytest tests/test_models.py::TestVersion::test_parse -v</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Test file</th><th>Coverage area</th></tr></thead>
+            <tbody>
+              <tr><td><code>test_models.py</code></td><td>Version, SkillRecord, VersionRequirement</td></tr>
+              <tr><td><code>test_manifest.py</code></td><td>Config file parsing / writing</td></tr>
+              <tr><td><code>test_registry.py</code></td><td>JSON registry persistence</td></tr>
+              <tr><td><code>test_resolver.py</code></td><td>Version constraint resolution</td></tr>
+              <tr><td><code>test_discovery.py</code></td><td>Repository scanning, grouping</td></tr>
+              <tr><td><code>test_installer.py</code></td><td>Install / uninstall logic</td></tr>
+              <tr><td><code>test_adapters.py</code></td><td>All three structure adapters</td></tr>
+              <tr><td><code>test_git.py</code></td><td>GitRepo (mocked subprocess)</td></tr>
+              <tr><td><code>test_cli.py</code></td><td>Argument parsing, command dispatch</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── CI/CD ── -->
+      <section id="cicd">
+        <h2>CI/CD</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Workflow</th><th>Trigger</th><th>Jobs</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Build</strong></td><td>Push to <code>main</code>, PRs to <code>main</code>, version tags (<code>v*</code>)</td><td>test, build-linux, build-windows, release</td></tr>
+              <tr><td><strong>Bump Version</strong></td><td>PR merged to <code>main</code></td><td>bump-version (Conventional Commits)</td></tr>
+              <tr><td><strong>Pages</strong></td><td>Push to <code>main</code></td><td>publish documentation to GitHub Pages</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Auto Version Bumping</h3>
+        <p>When a PR is merged to <code>main</code>, the <code>bump-version</code> workflow automatically creates a new version tag based on the PR title:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>PR title pattern</th><th>Bump type</th><th>Example</th></tr></thead>
+            <tbody>
+              <tr><td><code>feat: ...</code> or <code>feat(scope): ...</code></td><td>Minor</td><td><code>v1.0.0</code> → <code>v1.1.0</code></td></tr>
+              <tr><td><code>type!: ...</code> or <code>BREAKING CHANGE</code> in body</td><td>Major</td><td><code>v1.0.0</code> → <code>v2.0.0</code></td></tr>
+              <tr><td>Anything else (<code>fix:</code>, <code>chore:</code>, <code>docs:</code>)</td><td>Patch</td><td><code>v1.0.0</code> → <code>v1.0.1</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Releasing</h3>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">create a release</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>git tag v1.2.0</div>
+            <div><span class="prompt">$ </span>git push origin v1.2.0</div>
+            <div class="success">  → GitHub Actions creates a release with Linux + Windows binaries</div>
+            <div class="success">  → SHA-256 checksums are auto-generated and attached</div>
+          </div>
+        </div>
+        <div class="callout info">
+          <span class="callout-icon">💡</span>
+          <div class="callout-content"><p>Tags containing a hyphen (e.g. <code>v1.2.0-beta</code>) are automatically marked as pre-releases.</p></div>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Versioning Skills ── -->
+      <section id="versioning-skills">
+        <h2>Versioning Skills in a Remote Repository</h2>
+        <p>Skills are versioned with git tags. Every time a skill's frontmatter version is bumped, a matching tag must be pushed for it to be installable:</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">release a new skill version</span></div>
+          <div class="terminal-body">
+            <div><span class="comment"># 1. Bump version in frontmatter</span></div>
+            <div><span class="comment">#    skills/create-jira-story/SKILL.md: version: 1.3.0</span></div>
+            <div></div>
+            <div><span class="prompt">$ </span>git add skills/create-jira-story/SKILL.md</div>
+            <div><span class="prompt">$ </span>git commit -m "Bump create-jira-story to 1.3.0"</div>
+            <div></div>
+            <div><span class="comment"># 2. Tag the commit — REQUIRED for installability</span></div>
+            <div><span class="prompt">$ </span>git tag skills/create-jira-story@1.3.0</div>
+            <div><span class="prompt">$ </span>git push && git push --tags</div>
+          </div>
+        </div>
+        <div class="callout warning">
+          <span class="callout-icon">⚠️</span>
+          <div class="callout-content"><p>If the tag is omitted, the version exists in the frontmatter but <strong>cannot be resolved or installed</strong> by aom.</p></div>
+        </div>
+        <p>Different skills have independent tag histories — each skill's versions are tracked separately:</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">git log --oneline</span></div>
+          <div class="terminal-body">
+            <div class="output">Commit A  ← tag: skills/create-jira-story@1.0.0</div>
+            <div class="output">           ← tag: skills/design-workflow@1.0.0</div>
+            <div class="output">Commit B  ← tag: skills/design-workflow@1.1.0</div>
+            <div class="output">Commit C  ← tag: skills/create-jira-story@1.1.0</div>
+            <div class="output">Commit D  ← tag: skills/create-jira-story@1.2.0  (HEAD)</div>
+          </div>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Contributing ── -->
+      <section id="contributing">
+        <h2>Contributing</h2>
+        <p>Contributions are welcome. Please follow these steps:</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-content"><h4>Fork the repository</h4><p>Create your own fork on GitHub and clone it locally.</p></div>
+          </div>
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-content"><h4>Create a feature branch from <code>main</code></h4><p>Keep branches focused on a single change.</p></div>
+          </div>
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-content">
+              <h4>Use Conventional Commits for PR titles</h4>
+              <p>The CI auto-bumps the version tag on merge based on the PR title format.</p>
+              <div class="terminal">
+                <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">commit examples</span></div>
+                <div class="terminal-body">
+                  <div class="success">feat: add kiro agent support</div>
+                  <div class="success">fix: resolve version constraint with pre-release suffix</div>
+                  <div class="success">docs: improve sync command examples</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-content">
+              <h4>Ensure all tests pass</h4>
+              <div class="terminal">
+                <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">CI checks</span></div>
+                <div class="terminal-body">
+                  <div><span class="prompt">$ </span>make test && make lint</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num"></div>
+            <div class="step-content"><h4>Open a pull request against <code>main</code></h4><p>Version bumping is handled automatically on merge.</p></div>
+          </div>
+        </div>
+      </section>
+
+      <hr />
+
+      <!-- ── Portability ── -->
+      <section id="portability">
+        <h2>Portability</h2>
+        <div class="cards">
+          <div class="card">
+            <div class="card-icon">🐍</div>
+            <h4>Pure Python stdlib</h4>
+            <p>No pip install required when using source mode. Targets Python 3.10+.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">🌐</div>
+            <h4>Cross-platform</h4>
+            <p>Linux, macOS, Windows. All paths resolved via <code>pathlib.Path</code>.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">📦</div>
+            <h4>Self-contained binary</h4>
+            <p>PyInstaller bundles everything. Only git is needed for skill operations.</p>
+          </div>
+          <div class="card">
+            <div class="card-icon">🔤</div>
+            <h4>UTF-8 on Windows</h4>
+            <p>stdout is wrapped at startup to enforce UTF-8 output on Windows.</p>
+          </div>
+        </div>
+      </section>
+
+      <footer style="margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.875rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: gap 12px;">
+        <span>aom — AI Operation Manager · MIT License</span>
+        <span>Built with ❤️ · <a href="https://github.com/gszczutkowski/ai-operation-manager">GitHub</a></span>
+      </footer>
+
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>
+    // ── Syntax highlighting ──
+    document.querySelectorAll('pre code').forEach(el => {
+      hljs.highlightElement(el);
+    });
+
+    // ── Theme toggle ──
+    const themeToggle = document.getElementById('themeToggle');
+    const hljsDark = document.getElementById('hljs-theme');
+    const hljsLight = document.getElementById('hljs-light');
+    const html = document.documentElement;
+
+    const savedTheme = localStorage.getItem('aom-theme') || 'dark';
+    applyTheme(savedTheme);
+
+    themeToggle.addEventListener('click', () => {
+      const current = html.getAttribute('data-theme');
+      applyTheme(current === 'dark' ? 'light' : 'dark');
+    });
+
+    function applyTheme(theme) {
+      html.setAttribute('data-theme', theme);
+      themeToggle.textContent = theme === 'dark' ? '🌙' : '☀️';
+      hljsDark.disabled = theme === 'light';
+      hljsLight.disabled = theme === 'dark';
+      localStorage.setItem('aom-theme', theme);
+    }
+
+    // ── Tabs ──
+    document.querySelectorAll('.tab-list').forEach(tabList => {
+      const panel = tabList.closest('.tabs');
+      tabList.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tabId = btn.dataset.tab;
+          tabList.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          panel.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+          const target = document.getElementById('tab-' + tabId);
+          if (target) target.classList.add('active');
+        });
+      });
+    });
+
+    // ── Copy buttons ──
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const code = btn.closest('pre').querySelector('code');
+        navigator.clipboard.writeText(code.innerText).then(() => {
+          btn.textContent = '✓ Copied';
+          btn.classList.add('copied');
+          setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+        });
+      });
+    });
+
+    // ── Mobile sidebar ──
+    const hamburger = document.getElementById('hamburgerBtn');
+    const sidebar = document.getElementById('sidebar');
+    hamburger.addEventListener('click', () => sidebar.classList.toggle('open'));
+    document.getElementById('mainContent').addEventListener('click', () => {
+      if (sidebar.classList.contains('open')) sidebar.classList.remove('open');
+    });
+
+    // ── Active nav link on scroll ──
+    const navLinks = document.querySelectorAll('.nav-link[href^="#"]');
+    const sections = Array.from(document.querySelectorAll('section[id], div[id].hero, h2[id], h3[id]'));
+
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const id = entry.target.id;
+          navLinks.forEach(l => {
+            l.classList.toggle('active', l.getAttribute('href') === '#' + id);
+          });
+        }
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+
+    document.querySelectorAll('section[id]').forEach(s => observer.observe(s));
+
+    // ── Sidebar search ──
+    const searchInput = document.getElementById('sidebarSearch');
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.toLowerCase();
+      navLinks.forEach(link => {
+        const text = link.textContent.toLowerCase();
+        link.style.display = !query || text.includes(query) ? '' : 'none';
+      });
+    });
+  </script>
+</body>
+</html>

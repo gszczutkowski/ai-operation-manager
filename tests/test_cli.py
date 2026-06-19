@@ -198,6 +198,7 @@ class TestSuggestSimilar:
 
 
 class TestCmdInstall:
+    @patch("aom.cli.is_initialized", return_value=True)
     @patch("aom.cli._get_git_repos", return_value=[])
     @patch("aom.cli.get_local_paths", return_value=[])
     @patch("aom.cli.scan_installed", return_value=[])
@@ -212,6 +213,7 @@ class TestCmdInstall:
         mock_scan_inst,
         mock_local_paths,
         mock_git,
+        mock_init,
         capsys,
     ):
         mock_global.return_value = Path("/nonexistent")
@@ -220,6 +222,7 @@ class TestCmdInstall:
         result = main(["install", "nonexistent-skill"])
         assert result == 1
 
+    @patch("aom.cli.is_initialized", return_value=True)
     @patch("aom.cli._get_git_repos", return_value=[])
     @patch("aom.cli.get_local_paths", return_value=[])
     @patch("aom.cli.scan_installed", return_value=[])
@@ -234,6 +237,7 @@ class TestCmdInstall:
         mock_scan_inst,
         mock_local_paths,
         mock_git,
+        mock_init,
         capsys,
     ):
         """Install should ignore local/global records so it always picks the
@@ -1141,8 +1145,8 @@ class TestCmdInit:
         assert result == 0
         mock_write_selected.assert_called_once()
         mock_set_repo_urls.assert_called_once_with(["ssh://repo-1.git"])
-        mock_set_local_paths.assert_not_called()
-        mock_write_repo_url.assert_called_once()
+        mock_set_local_paths.assert_called_once_with([])
+        mock_write_repo_url.assert_not_called()
 
     @patch("aom.settings.get_settings_path", return_value=Path("/tmp/settings.json"))
     @patch("aom.cli.detect_supported_agents", return_value=["ClaudeCode"])
@@ -1201,7 +1205,6 @@ class TestCmdInit:
         mock_set_local_paths.assert_called_once_with([str(existing_local), str(missing_local)])
         assert mock_gitrepo_cls.call_count == 2
         mock_scan_repo.assert_called_once_with(existing_local)
-        mock_write_repo_url.assert_called_once()
 
 
 class TestPromptHelpers:
@@ -1779,3 +1782,128 @@ class TestCmdInfo:
         result = main(["info", "my-skill"])
         assert result == 0
         mock_info.assert_called_once()
+
+
+# ===================================================================
+# detect command
+# ===================================================================
+
+
+class TestBuildParserDetect:
+    def test_detect_command(self):
+        parser = build_parser()
+        args = parser.parse_args(["detect"])
+        assert args.command == "detect"
+
+    def test_detect_project_dir(self):
+        parser = build_parser()
+        args = parser.parse_args(["detect", "--project-dir", "/tmp/proj"])
+        assert args.project_dir == Path("/tmp/proj")
+
+
+class TestCmdDetect:
+    def test_no_agents_found(self, tmp_path, capsys):
+        """Should return 1 and print warning when no agent dirs exist."""
+        result = main(["detect", "--project-dir", str(tmp_path)])
+        assert result == 1
+        out = capsys.readouterr().out
+        assert "No AI agent directories found" in out
+
+    def test_detects_claude(self, tmp_path, capsys):
+        """Should detect ClaudeCode when .claude dir exists."""
+        (tmp_path / ".claude").mkdir()
+        with patch("builtins.input", return_value=""):
+            result = main(["detect", "--project-dir", str(tmp_path)])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "Claude" in out
+
+    def test_detects_kiro(self, tmp_path, capsys):
+        """Should detect Kiro when .kiro dir exists."""
+        (tmp_path / ".kiro").mkdir()
+        with patch("builtins.input", return_value=""):
+            result = main(["detect", "--project-dir", str(tmp_path)])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "Kiro" in out
+
+    def test_detects_multiple(self, tmp_path, capsys):
+        """Should detect all agents with matching directories."""
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".kiro").mkdir()
+        with patch("builtins.input", return_value=""):
+            result = main(["detect", "--project-dir", str(tmp_path)])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "Claude" in out
+        assert "Kiro" in out
+
+    def test_adds_new_agent_to_config(self, tmp_path, capsys):
+        """When a new agent is found that wasn't previously tracked, it should be added."""
+        import json
+
+        # Pre-existing config only has ClaudeCode
+        aom_dir = tmp_path / ".aom"
+        aom_dir.mkdir()
+        (aom_dir / "agents.json").write_text(
+            json.dumps({"agents": ["ClaudeCode"]}), encoding="utf-8"
+        )
+
+        # Both agent dirs exist
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".kiro").mkdir()
+
+        with patch("builtins.input", return_value=""):
+            result = main(["detect", "--project-dir", str(tmp_path)])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "Updated supported agents:" in out
+        assert "Kiro" in out
+
+        # Verify agents.json was updated
+        data = json.loads((aom_dir / "agents.json").read_text(encoding="utf-8"))
+        assert "ClaudeCode" in data["agents"]
+        assert "Kiro" in data["agents"]
+
+    def test_no_new_agents_all_tracked(self, tmp_path, capsys):
+        """When all detected agents are already tracked, shows info message."""
+        import json
+
+        aom_dir = tmp_path / ".aom"
+        aom_dir.mkdir()
+        (aom_dir / "agents.json").write_text(
+            json.dumps({"agents": ["ClaudeCode", "Kiro"]}), encoding="utf-8"
+        )
+
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".kiro").mkdir()
+
+        result = main(["detect", "--project-dir", str(tmp_path)])
+        assert result == 0
+        out = capsys.readouterr().out
+        assert "already supported" in out
+
+    def test_creates_agents_json_when_missing(self, tmp_path, capsys):
+        """When no agents.json exists, should create it with detected agents."""
+        import json
+
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".kiro").mkdir()
+
+        with patch("builtins.input", return_value=""):
+            result = main(["detect", "--project-dir", str(tmp_path)])
+        assert result == 0
+
+        agents_file = tmp_path / ".aom" / "agents.json"
+        assert agents_file.exists()
+        data = json.loads(agents_file.read_text(encoding="utf-8"))
+        assert "ClaudeCode" in data["agents"]
+        assert "Kiro" in data["agents"]
+
+    def test_detect_dispatches(self):
+        """Detect command should be in the dispatch table."""
+        from aom.cli import cmd_detect
+        with patch("aom.cli.cmd_detect", return_value=0) as mock_detect:
+            result = main(["detect"])
+            assert result == 0
+            mock_detect.assert_called_once()

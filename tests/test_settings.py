@@ -59,7 +59,7 @@ class TestSettingsPaths:
 class TestLoadSave:
     def test_load_empty(self):
         data = _load_raw()
-        assert data["version"] == 2
+        assert data["version"] == 3
         assert data["repositories"] == []
         assert data["local_paths"] == []
 
@@ -84,7 +84,7 @@ class TestLoadSave:
         data = {"version": 1, "repositories": [{"url": "git@example.com:test.git"}]}
         _save_raw(data)
         loaded = _load_raw()
-        assert loaded["version"] == 2
+        assert loaded["version"] == 3
         assert loaded["local_paths"] == []
         assert len(loaded["repositories"]) == 1
 
