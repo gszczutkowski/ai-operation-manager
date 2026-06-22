@@ -29,8 +29,10 @@ Thumbs.db
 .claude
 .agents
 .aom/
+.kiro/
 CLAUDE.md
 AGENTS.md
+KIRO.md
 
 # Auto-generated version file (setuptools-scm)
 aom/_version.py

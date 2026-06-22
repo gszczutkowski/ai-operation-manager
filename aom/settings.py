@@ -10,16 +10,30 @@ Settings location:
   Linux/macOS: ~/.config/aom/settings.json
   Windows:     %APPDATA%/aom/settings.json
 
-Schema (version 2):
+Schema (version 3):
 {
-  "version": 2,
+  "version": 3,
+  "agents": ["ClaudeCode", "Codex"],
   "repositories": [
     {"url": "git@github.com:myorg/ai-grimoire.git"}
   ],
   "local_paths": [
     "/home/user/my-local-skills"
-  ]
+  ],
+  "required": {
+    "create-jira-story": "1.0.0",
+    "design-workflow": ">=1.0.0"
+  },
+  "initialized_paths": [
+    "/home/user/my-project",
+    "/home/user/other-project"
+  ],
+  "fetch_ttl_seconds": 3600
 }
+
+IMPORTANT: This file format is versioned. Any changes MUST be backward
+compatible — new fields should have sensible defaults so that older configs
+are transparently upgraded on read. Never remove or rename existing fields.
 """
 from __future__ import annotations
 
@@ -30,7 +44,7 @@ import tempfile
 from pathlib import Path
 
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 
 # ---------------------------------------------------------------------------
@@ -59,20 +73,29 @@ def get_settings_path() -> Path:
 
 def _load_raw() -> dict:
     path = get_settings_path()
+    defaults = {
+        "version": _SCHEMA_VERSION,
+        "agents": [],
+        "repositories": [],
+        "local_paths": [],
+        "required": {},
+        "initialized_paths": [],
+    }
     try:
         if not path.is_file():
-            return {"version": _SCHEMA_VERSION, "repositories": [], "local_paths": []}
+            return dict(defaults)
     except OSError as exc:
         print(
             f"Warning: cannot access settings at {path}, using defaults: {exc}",
             file=sys.stderr,
         )
-        return {"version": _SCHEMA_VERSION, "repositories": [], "local_paths": []}
+        return dict(defaults)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        # Migrate from v1 → v2: ensure local_paths key exists
-        if "local_paths" not in data:
-            data["local_paths"] = []
+        # Migrate: ensure all expected keys exist (backward compat)
+        for key, default_val in defaults.items():
+            if key not in data:
+                data[key] = default_val
         data["version"] = _SCHEMA_VERSION
         return data
     except (json.JSONDecodeError, OSError) as exc:
@@ -80,7 +103,7 @@ def _load_raw() -> dict:
             f"Warning: corrupt settings at {path}, starting fresh: {exc}",
             file=sys.stderr,
         )
-        return {"version": _SCHEMA_VERSION, "repositories": [], "local_paths": []}
+        return dict(defaults)
 
 
 def _save_raw(data: dict) -> None:
@@ -195,3 +218,132 @@ def set_fetch_ttl(seconds: int) -> None:
     data = _load_raw()
     data["fetch_ttl_seconds"] = seconds
     _save_raw(data)
+
+
+# ---------------------------------------------------------------------------
+# Global agents management
+# ---------------------------------------------------------------------------
+
+def get_global_agents() -> list[str]:
+    """Return the list of globally supported agent names."""
+    data = _load_raw()
+    agents = data.get("agents", [])
+    return [a for a in agents if isinstance(a, str) and a]
+
+
+def set_global_agents(agents: list[str]) -> None:
+    """Replace the global agents list."""
+    data = _load_raw()
+    data["agents"] = agents
+    _save_raw(data)
+
+
+# ---------------------------------------------------------------------------
+# Global required skills management
+# ---------------------------------------------------------------------------
+
+def get_global_required() -> dict[str, str]:
+    """Return the global required skills mapping {name: constraint}."""
+    data = _load_raw()
+    req = data.get("required", {})
+    return {k: v for k, v in req.items() if isinstance(k, str) and isinstance(v, str)}
+
+
+def set_global_required(required: dict[str, str]) -> None:
+    """Replace the global required skills mapping."""
+    data = _load_raw()
+    data["required"] = required
+    _save_raw(data)
+
+
+def add_global_required_skill(name: str, constraint: str) -> None:
+    """Add or update a skill in the global required mapping."""
+    data = _load_raw()
+    data.setdefault("required", {})[name] = constraint
+    _save_raw(data)
+
+
+def remove_global_required_skill(name: str) -> bool:
+    """Remove a skill from the global required mapping. Returns True if removed."""
+    data = _load_raw()
+    req = data.get("required", {})
+    if name in req:
+        del req[name]
+        _save_raw(data)
+        return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Initialized paths management
+# ---------------------------------------------------------------------------
+
+def get_initialized_paths() -> list[str]:
+    """Return all paths where 'aom init' has been run locally."""
+    data = _load_raw()
+    paths = data.get("initialized_paths", [])
+    return [p for p in paths if isinstance(p, str) and p]
+
+
+def add_initialized_path(path: str) -> bool:
+    """Record that aom init was run at *path*. Returns True if newly added."""
+    paths = get_initialized_paths()
+    normalized = str(Path(path).resolve())
+    for existing in paths:
+        if str(Path(existing).resolve()) == normalized:
+            return False
+    paths.append(normalized)
+    data = _load_raw()
+    data["initialized_paths"] = paths
+    _save_raw(data)
+    return True
+
+
+def remove_initialized_path(path: str) -> bool:
+    """Remove *path* from the initialized paths list. Returns True if removed."""
+    paths = get_initialized_paths()
+    normalized = str(Path(path).resolve())
+    new_paths = [p for p in paths if str(Path(p).resolve()) != normalized]
+    if len(new_paths) == len(paths):
+        return False
+    data = _load_raw()
+    data["initialized_paths"] = new_paths
+    _save_raw(data)
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Global config check
+# ---------------------------------------------------------------------------
+
+def is_global_initialized() -> bool:
+    """Return True if the global settings file exists and has agents configured."""
+    path = get_settings_path()
+    if not path.is_file():
+        return False
+    data = _load_raw()
+    return bool(data.get("agents"))
+
+
+def needs_global_update() -> tuple[bool, int, int]:
+    """
+    Check whether the global settings file needs a version upgrade.
+
+    Returns ``(needs_update, current_version, latest_version)``.
+
+    * ``needs_update`` is True when the file exists but its version is below
+      ``_SCHEMA_VERSION``.  When the gap is large the caller should warn the
+      user and offer to re-run init from scratch.
+    * When the file does not exist at all, ``current_version`` is 0 and
+      ``needs_update`` is False (first-time setup, not an upgrade).
+    """
+    path = get_settings_path()
+    if not path.is_file():
+        return (False, 0, _SCHEMA_VERSION)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        current = int(data.get("version", 1))
+        return (current < _SCHEMA_VERSION, current, _SCHEMA_VERSION)
+    except (json.JSONDecodeError, OSError, ValueError):
+        # Treat a corrupt/unreadable file as needing update
+        return (True, 0, _SCHEMA_VERSION)
