@@ -1902,7 +1902,6 @@ class TestCmdDetect:
 
     def test_detect_dispatches(self):
         """Detect command should be in the dispatch table."""
-        from aom.cli import cmd_detect
         with patch("aom.cli.cmd_detect", return_value=0) as mock_detect:
             result = main(["detect"])
             assert result == 0

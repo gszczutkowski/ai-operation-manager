@@ -71,7 +71,6 @@ from .settings import (
     set_local_paths as set_global_local_paths,
     get_fetch_ttl,
     get_settings_dir,
-    get_settings_path,
 )
 
 
@@ -837,7 +836,7 @@ def _cmd_sync_requirements(args: argparse.Namespace, clean: bool = False) -> int
         print(yellow("No skills requirements found in aom.json"))
         print(dim("  Run 'aom install NAME' to add skills, or edit aom.json directly."))
         print()
-        print(bold(f"Sync complete. 0 installed, 0 error(s)."))
+        print(bold("Sync complete. 0 installed, 0 error(s)."))
         return 0
 
     for agent in agents:
@@ -1012,7 +1011,6 @@ def cmd_remove(args: argparse.Namespace) -> int:
     agents = _active_agents(project_dir)
     scope_label = "global" if args.global_ else "local"
 
-    removed_any = False
     for agent in agents:
         if args.global_:
             target_dir = get_global_dir(agent=agent, project_dir=project_dir)
@@ -1024,7 +1022,6 @@ def cmd_remove(args: argparse.Namespace) -> int:
         removed = uninstall(artifact_type, name, target_dir, registry, agent=agent)
         if removed:
             print(green(f"✓ Removed {name} [{scope_label}:{agent}]"))
-            removed_any = True
         else:
             print(yellow(f"  {name} was not installed [{scope_label}:{agent}]"))
 
@@ -1882,7 +1879,6 @@ def cmd_init(args: argparse.Namespace) -> int:
         is_global_initialized,
         needs_global_update,
         set_global_agents as _set_global_agents,
-        get_global_agents as _get_global_agents,
     )
 
     project_dir = (args.project_dir or Path.cwd()).resolve()
@@ -2044,7 +2040,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     print(f"  Agents: {bold(', '.join(selected_agents))}")
     if global_created:
         print()
-        print(green(f"✓ Global configuration was created for the first time at:"))
+        print(green("✓ Global configuration was created for the first time at:"))
         print(f"  {get_settings_path()}")
     print()
 
