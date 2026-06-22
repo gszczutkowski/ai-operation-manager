@@ -1195,12 +1195,12 @@ class TestCmdInit:
         mock_gitrepo_cls.side_effect = [repo_ok, repo_fail]
 
         args = build_parser().parse_args(["init", "--project-dir", str(tmp_path)])
-        # use this agent? n -> choose other; change repos y; change local y; fetch now Enter
-        with patch("builtins.input", side_effect=["n", "y", "y", ""]):
+        # change repos? y; change local paths? y; use detected agent? n (reject → _prompt_agent_selection); fetch? enter
+        with patch("builtins.input", side_effect=["y", "y", "n", ""]):
             result = cmd_init(args)
 
         assert result == 0
-        mock_prompt_agents.assert_called_once()
+        mock_prompt_agents.assert_called_once()  # called when user rejects detected agent
         mock_set_repo_urls.assert_called_once_with(["ssh://new.git", "ssh://bad.git"])
         mock_set_local_paths.assert_called_once_with([str(existing_local), str(missing_local)])
         assert mock_gitrepo_cls.call_count == 2

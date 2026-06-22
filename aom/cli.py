@@ -36,6 +36,7 @@ from pathlib import Path
 from .config import (
     AGENT_MAP,
     ARTIFACT_TYPES,
+    LOCAL_CONFIG_FILE,
     detect_supported_agents,
     ensure_global_dir,
     get_agent,
@@ -70,6 +71,7 @@ from .settings import (
     set_local_paths as set_global_local_paths,
     get_fetch_ttl,
     get_settings_dir,
+    get_settings_path,
 )
 
 
@@ -301,7 +303,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     if args.global_:
         if not is_global_initialized():
             print(red("✗ Global aom has not been initialized."))
-            print(dim("  Run 'aom init global' to set up global configuration."))
+            print(dim("  Run 'aom init' to set up global configuration."))
             return 1
     else:
         if not is_initialized(project_dir):
@@ -567,7 +569,7 @@ def _list_requirements_table(
     global_by_agent: dict[str, list[SkillRecord]] | None = None,
     local_by_agent: dict[str, list[SkillRecord]] | None = None,
 ) -> int:
-    # Read requirements from .aom/config.json first, fall back to agent manifest
+    # Read requirements from aom.json first, fall back to agent manifest
     config = load_local_config(project_dir)
     config_required = config.get("required", {})
 
@@ -812,7 +814,7 @@ def _cmd_sync_requirements(args: argparse.Namespace, clean: bool = False) -> int
     total_installed = 0
     total_removed = 0
 
-    # Read requirements from .aom/config.json first, fall back to agent manifest
+    # Read requirements from aom.json first, fall back to agent manifest
     config = load_local_config(project_dir)
     config_required = config.get("required", {})
     if config_required:
@@ -832,8 +834,8 @@ def _cmd_sync_requirements(args: argparse.Namespace, clean: bool = False) -> int
                 break
 
     if not requirements and not clean:
-        print(yellow("No skills requirements found in .aom/config.json"))
-        print(dim("  Run 'aom install NAME' to add skills, or edit .aom/config.json directly."))
+        print(yellow("No skills requirements found in aom.json"))
+        print(dim("  Run 'aom install NAME' to add skills, or edit aom.json directly."))
         print()
         print(bold(f"Sync complete. 0 installed, 0 error(s)."))
         return 0
@@ -1471,7 +1473,7 @@ def cmd_env(args: argparse.Namespace) -> int:
             config_names = [AGENT_MAP[a]["config_file"] for a in global_agents if a in AGENT_MAP]
             print(f"  Config: {', '.join(config_names)}")
     else:
-        print(f"  {dim('(not configured — run aom init global)')}")
+        print(f"  {dim('(not configured — run aom init)')}")
 
     # ---- Local AI Agents ----
     local_selected = read_selected_agents(project_dir)
@@ -1873,26 +1875,121 @@ _KNOWN_AGENT_FILES = {cfg["config_file"]: agent for agent, cfg in AGENT_MAP.item
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    """Interactive project initialization: detect agent, save configuration."""
+    """Interactive project initialization: detect agent, configure global settings on first run."""
     from .settings import (
         get_settings_path,
         add_initialized_path,
+        is_global_initialized,
+        needs_global_update,
         set_global_agents as _set_global_agents,
         get_global_agents as _get_global_agents,
     )
-
-    # Dispatch to global init if requested
-    if getattr(args, "init_scope", None) == "global":
-        return _cmd_init_global(args)
 
     project_dir = (args.project_dir or Path.cwd()).resolve()
 
     print()
     print(bold("aom init"))
-    print(f"  Directory: {project_dir}")
+    print(f"  Project : {project_dir}")
     print()
 
-    # ---- Step 1: choose one or all agents for this project ----
+    # -----------------------------------------------------------------------
+    # Phase A: global settings — create on first run, update on version bump
+    # -----------------------------------------------------------------------
+    # saved_urls / saved_local_paths carry values into Phase B so the
+    # fetch/scan reflects whatever was confirmed/changed in this run.
+    global_created = False
+    needs_update, cur_ver, latest_ver = needs_global_update()
+    saved_urls: list[str] = []
+    saved_local_paths: list[str] = []
+
+    if not is_global_initialized():
+        # First time ever — run the full global setup wizard
+        print(bold("Global settings not found."))
+        print(f"  Location: {get_settings_path()}")
+        print()
+        print("Setting up global configuration (shared across all projects).")
+        print()
+
+        selected_global_agents = _prompt_agent_selection(
+            list(AGENT_MAP.keys()), prompt_label="agent"
+        )
+        _set_global_agents(selected_global_agents)
+
+        saved_urls = _prompt_repos_with_existing(get_global_repo_urls(), first_time=True)
+        set_global_repo_urls(saved_urls)
+
+        saved_local_paths = _prompt_local_paths_with_existing(
+            get_global_local_paths(), first_time=True
+        )
+        set_global_local_paths(saved_local_paths)
+
+        global_created = True
+        print(green(f"✓ Global configuration created: {get_settings_path()}"))
+        print(f"  Agents       : {bold(', '.join(selected_global_agents))}")
+        print(f"  Repositories : {len(saved_urls)}")
+        print(f"  Local paths  : {len(saved_local_paths)}")
+        print()
+
+    elif needs_update:
+        # Global file exists but schema version is older
+        print(yellow(
+            f"Global settings file is at schema version {cur_ver} "
+            f"(current: {latest_ver})."
+        ))
+        print(f"  Location: {get_settings_path()}")
+        print()
+
+        if cur_ver == 0:
+            # Corrupt / unreadable — must recreate from scratch
+            print(red("  The file appears to be corrupt and cannot be read."))
+            ans = input("  Recreate global settings from scratch? [Y/n]: ").strip().lower()
+            if ans == "n":
+                print(yellow("  Skipped. Some features may not work correctly."))
+                print()
+                saved_urls = get_global_repo_urls()
+                saved_local_paths = get_global_local_paths()
+            else:
+                selected_global_agents = _prompt_agent_selection(
+                    list(AGENT_MAP.keys()), prompt_label="agent"
+                )
+                _set_global_agents(selected_global_agents)
+                saved_urls = _prompt_repos_with_existing([], first_time=True)
+                set_global_repo_urls(saved_urls)
+                saved_local_paths = _prompt_local_paths_with_existing([], first_time=True)
+                set_global_local_paths(saved_local_paths)
+                print(green(f"✓ Global settings recreated: {get_settings_path()}"))
+                print()
+        else:
+            # Known older version — auto-upgrade is safe (settings.py handles it on load)
+            print(dim("  Auto-upgrading schema (existing values are preserved)."))
+            from .settings import _load_raw, _save_raw
+            _save_raw(_load_raw())
+            print(green(f"  ✓ Upgraded to version {latest_ver}."))
+            print()
+
+            print(bold("Please confirm your global settings:"))
+            print()
+            saved_urls = _prompt_repos_with_existing(get_global_repo_urls(), first_time=False)
+            set_global_repo_urls(saved_urls)
+            saved_local_paths = _prompt_local_paths_with_existing(
+                get_global_local_paths(), first_time=False
+            )
+            set_global_local_paths(saved_local_paths)
+            print()
+    else:
+        # Global settings exist and are current — confirm repos/local_paths
+        saved_urls = _prompt_repos_with_existing(get_global_repo_urls(), first_time=False)
+        set_global_repo_urls(saved_urls)
+        saved_local_paths = _prompt_local_paths_with_existing(
+            get_global_local_paths(), first_time=False
+        )
+        set_global_local_paths(saved_local_paths)
+
+    # -----------------------------------------------------------------------
+    # Phase B: local project config (aom.json)
+    # -----------------------------------------------------------------------
+
+    # Step 1: choose agents for this project
     found_agents = detect_supported_agents(project_dir)
     selected_agents: list[str]
 
@@ -1902,8 +1999,8 @@ def cmd_init(args: argparse.Namespace) -> int:
         selected_agents = _prompt_agent_selection(list(AGENT_MAP.keys()), prompt_label="agent")
     elif len(found_agents) == 1:
         only = found_agents[0]
-        cfg = AGENT_MAP[only]["config_file"]
-        print(f"Found: {bold(cfg)}  ->  {only}")
+        cfg_file = AGENT_MAP[only]["config_file"]
+        print(f"Found: {bold(cfg_file)}  ->  {only}")
         ans = input("Use this agent? [Y/n]: ").strip().lower()
         if ans == "n":
             selected_agents = _prompt_agent_selection(list(AGENT_MAP.keys()), prompt_label="agent")
@@ -1912,8 +2009,8 @@ def cmd_init(args: argparse.Namespace) -> int:
     else:
         print("Found multiple supported AI agents:")
         for i, agent in enumerate(found_agents, 1):
-            cfg = AGENT_MAP[agent]["config_file"]
-            print(f"  [{i}] {agent:<12} ({cfg})")
+            cfg_file = AGENT_MAP[agent]["config_file"]
+            print(f"  [{i}] {agent:<12} ({cfg_file})")
         print("  [a] all")
         print()
         while True:
@@ -1931,83 +2028,27 @@ def cmd_init(args: argparse.Namespace) -> int:
                 break
             print("  Invalid selection.", file=sys.stderr)
 
-    # ---- Step 2: configure repository URLs ----
-    saved_urls = get_global_repo_urls()
-
-    if saved_urls:
-        print(bold("Configured repositories (from global settings):"))
-        for i, u in enumerate(saved_urls, 1):
-            print(f"  [{i}] {u}")
-        print()
-        ans = input("  Change repositories? [y/N]: ").strip().lower()
-        if ans == "y":
-            urls = _prompt_repo_urls()
-            saved_urls = urls
-        else:
-            print(dim("  Using existing repository configuration."))
-            print()
-    else:
-        print("No repositories configured yet.")
-        print()
-        urls = _prompt_repo_urls()
-        saved_urls = urls
-        print()
-
-    # ---- Step 3: configure local filesystem paths (optional) ----
-    saved_local_paths = get_global_local_paths()
-
-    if saved_local_paths:
-        print(bold("Configured local paths:"))
-        for i, lp in enumerate(saved_local_paths, 1):
-            p = Path(lp)
-            status = green("✓ exists") if p.is_dir() else red("✗ missing")
-            print(f"  [{i}] {lp}  [{status}]")
-        print()
-        ans = input("  Change local paths? [y/N]: ").strip().lower()
-        if ans == "y":
-            local_paths = _prompt_local_paths()
-            saved_local_paths = local_paths
-        else:
-            print(dim("  Using existing local path configuration."))
-            print()
-    else:
-        print("Optionally, you can add local filesystem paths to skill repositories.")
-        print("This is useful for local development or when skills are stored on disk.")
-        print()
-        ans = input("  Add local paths? [y/N]: ").strip().lower()
-        if ans == "y":
-            local_paths = _prompt_local_paths()
-            saved_local_paths = local_paths
-            print()
-        else:
-            print(dim("  Skipped."))
-            print()
-
-    # ---- Step 4: write everything to .aom/config.json ----
+    # Step 2: write aom.json (agents + required only — no repos/local_paths)
     config = load_local_config(project_dir)
     config["agents"] = selected_agents
-    config["repositories"] = [{"url": u} for u in saved_urls]
-    config["local_paths"] = saved_local_paths
     save_local_config(config, project_dir)
 
     # Also write legacy .aom/agents.json for backward compat
     write_selected_agents(selected_agents, project_dir=project_dir)
 
-    # Also persist repos/local_paths to global settings for cross-project reuse
-    set_global_repo_urls(saved_urls)
-    set_global_local_paths(saved_local_paths)
-
     # Record this path in global initialized_paths
     add_initialized_path(str(project_dir))
 
-    config_path = project_dir / ".aom" / "config.json"
-    print(green(f"✓ Configuration saved to {config_path}"))
+    local_config_path = project_dir / LOCAL_CONFIG_FILE
+    print(green(f"✓ Project configuration saved to {local_config_path}"))
     print(f"  Agents: {bold(', '.join(selected_agents))}")
-    print(f"  Repositories: {len(saved_urls)}")
-    print(f"  Local paths: {len(saved_local_paths)}")
+    if global_created:
+        print()
+        print(green(f"✓ Global configuration was created for the first time at:"))
+        print(f"  {get_settings_path()}")
     print()
 
-    # ---- Step 5: offer to fetch the tag index from all repos ----
+    # Step 3: offer to fetch the tag index from all repos
     if saved_urls:
         ans = input("  Fetch skill index from repositories now? [Y/n]: ").strip().lower()
         if ans != "n":
@@ -2047,120 +2088,55 @@ def cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_init_global(args: argparse.Namespace) -> int:
-    """Initialize global aom settings."""
-    from .settings import (
-        get_settings_path,
-        set_global_agents as _set_global_agents,
-        get_global_agents as _get_global_agents,
-    )
-
-    print()
-    print(bold("aom init global"))
-    print(f"  Settings file: {get_settings_path()}")
-    print()
-
-    # ---- Step 1: choose agents ----
-    existing_agents = _get_global_agents()
-    if existing_agents:
-        print(bold("Currently configured global agents:"))
-        for agent in existing_agents:
-            print(f"  • {agent}")
-        print()
-        ans = input("  Change agents? [y/N]: ").strip().lower()
-        if ans == "y":
-            selected_agents = _prompt_agent_selection(list(AGENT_MAP.keys()), prompt_label="agent")
-        else:
-            selected_agents = existing_agents
-            print(dim("  Using existing agent configuration."))
-            print()
-    else:
-        print("Select which AI agents aom should manage globally:")
-        print()
-        selected_agents = _prompt_agent_selection(list(AGENT_MAP.keys()), prompt_label="agent")
-
-    _set_global_agents(selected_agents)
-
-    # ---- Step 2: configure repository URLs ----
-    saved_urls = get_global_repo_urls()
-
-    if saved_urls:
+def _prompt_repos_with_existing(current_urls: list[str], *, first_time: bool) -> list[str]:
+    """Show existing repository URLs and ask the user to confirm or update them."""
+    if current_urls:
         print(bold("Configured repositories:"))
-        for i, u in enumerate(saved_urls, 1):
+        for i, u in enumerate(current_urls, 1):
             print(f"  [{i}] {u}")
         print()
         ans = input("  Change repositories? [y/N]: ").strip().lower()
         if ans == "y":
-            urls = _prompt_repo_urls()
-            set_global_repo_urls(urls)
-            saved_urls = urls
-        else:
-            print(dim("  Using existing repository configuration."))
-            print()
+            return _prompt_repo_urls()
+        print(dim("  Using existing repository configuration."))
+        print()
+        return current_urls
     else:
-        print("No repositories configured yet.")
+        if not first_time:
+            print("No repositories configured yet.")
         print()
-        urls = _prompt_repo_urls()
-        set_global_repo_urls(urls)
-        saved_urls = urls
-        print()
+        return _prompt_repo_urls()
 
-    # ---- Step 3: configure local filesystem paths (optional) ----
-    saved_local_paths = get_global_local_paths()
 
-    if saved_local_paths:
+def _prompt_local_paths_with_existing(current_paths: list[str], *, first_time: bool) -> list[str]:
+    """Show existing local paths and ask the user to confirm or update them."""
+    if current_paths:
         print(bold("Configured local paths:"))
-        for i, lp in enumerate(saved_local_paths, 1):
+        for i, lp in enumerate(current_paths, 1):
             p = Path(lp)
             status = green("✓ exists") if p.is_dir() else red("✗ missing")
             print(f"  [{i}] {lp}  [{status}]")
         print()
         ans = input("  Change local paths? [y/N]: ").strip().lower()
         if ans == "y":
-            local_paths = _prompt_local_paths()
-            set_global_local_paths(local_paths)
-            saved_local_paths = local_paths
-        else:
-            print(dim("  Using existing local path configuration."))
+            new = _prompt_local_paths()
             print()
+            return new
+        print(dim("  Using existing local path configuration."))
+        print()
+        return current_paths
     else:
-        print("Optionally, you can add local filesystem paths to skill repositories.")
+        print("Optionally, add local filesystem paths to skill repositories.")
+        print("This is useful for local development or when skills are stored on disk.")
         print()
         ans = input("  Add local paths? [y/N]: ").strip().lower()
         if ans == "y":
-            local_paths = _prompt_local_paths()
-            set_global_local_paths(local_paths)
-            saved_local_paths = local_paths
+            new = _prompt_local_paths()
             print()
-        else:
-            print(dim("  Skipped."))
-            print()
-
-    print(green(f"✓ Global configuration saved to {get_settings_path()}"))
-    print(f"  Agents: {bold(', '.join(selected_agents))}")
-    print(f"  Repositories: {len(saved_urls)}")
-    print(f"  Local paths: {len(saved_local_paths)}")
-    print()
-
-    # ---- Step 4: offer to fetch ----
-    if saved_urls:
-        ans = input("  Fetch skill index from repositories now? [Y/n]: ").strip().lower()
-        if ans != "n":
-            total_tags = 0
-            for url in saved_urls:
-                try:
-                    repo = GitRepo(url)
-                    repo.fetch(verbose=True)
-                    tags = repo.list_skill_tags()
-                    total_tags += len(tags)
-                    print(green(f"  ✓ {url} — {len(tags)} skill version(s)"))
-                except RuntimeError as exc:
-                    print(red(f"  ✗ {url}: {exc}"))
-            print()
-            print(green(f"✓ Fetched. {total_tags} total skill version(s) available."))
+            return new
+        print(dim("  Skipped."))
         print()
-
-    return 0
+        return []
 
 
 def _prompt_agent_selection(candidates: list[str], prompt_label: str = "agent") -> list[str]:
@@ -2317,20 +2293,18 @@ def build_parser() -> argparse.ArgumentParser:
     # -- init -----------------------------------------------------------------
     p_init = sub.add_parser(
         "init",
-        help="Set up a project or global config: detect AI agents, configure repositories",
+        help="Set up a project: detect AI agents, configure repositories",
         description=(
             "Interactive setup wizard.\n\n"
-            "Without arguments: initializes the local project by writing\n"
-            "configuration to .aom/config.json.\n\n"
-            "With 'global': initializes global settings at the platform-specific\n"
-            "settings location (%%APPDATA%%\\aom\\settings.json on Windows,\n"
-            "~/.config/aom/settings.json on Linux/macOS)."
+            "Initializes the local project by writing configuration to aom.json\n"
+            "at the project root. On first run it also creates the global settings\n"
+            "file at the platform-specific location:\n"
+            "  Windows : %%APPDATA%%\\aom\\settings.json\n"
+            "  Linux/macOS: ~/.config/aom/settings.json\n\n"
+            "On every subsequent run, the wizard shows the current repository and\n"
+            "local-path settings and lets you update them before saving."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    p_init.add_argument(
-        "init_scope", nargs="?", choices=["global"], default=None,
-        help="Use 'global' to initialize global settings instead of local project",
     )
     p_init.add_argument(
         "--project-dir", metavar="DIR", type=Path, default=None,

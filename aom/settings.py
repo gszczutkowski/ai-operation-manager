@@ -318,5 +318,32 @@ def remove_initialized_path(path: str) -> bool:
 
 def is_global_initialized() -> bool:
     """Return True if the global settings file exists and has agents configured."""
+    path = get_settings_path()
+    if not path.is_file():
+        return False
     data = _load_raw()
     return bool(data.get("agents"))
+
+
+def needs_global_update() -> tuple[bool, int, int]:
+    """
+    Check whether the global settings file needs a version upgrade.
+
+    Returns ``(needs_update, current_version, latest_version)``.
+
+    * ``needs_update`` is True when the file exists but its version is below
+      ``_SCHEMA_VERSION``.  When the gap is large the caller should warn the
+      user and offer to re-run init from scratch.
+    * When the file does not exist at all, ``current_version`` is 0 and
+      ``needs_update`` is False (first-time setup, not an upgrade).
+    """
+    path = get_settings_path()
+    if not path.is_file():
+        return (False, 0, _SCHEMA_VERSION)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        current = int(data.get("version", 1))
+        return (current < _SCHEMA_VERSION, current, _SCHEMA_VERSION)
+    except (json.JSONDecodeError, OSError, ValueError):
+        # Treat a corrupt/unreadable file as needing update
+        return (True, 0, _SCHEMA_VERSION)

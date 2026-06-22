@@ -93,9 +93,10 @@ AGENT_MAP: dict[str, AgentConfig] = {
 ARTIFACT_TYPES = ("skills", "commands", "agents", "hooks")
 
 LOCAL_REGISTRY_NAME = "registry.json"
-PROJECT_AGENT_FILE = ".aom/agents.json"  # legacy, kept for backward compat
-LOCAL_CONFIG_FILE = ".aom/config.json"
-_LOCAL_CONFIG_VERSION = 1
+PROJECT_AGENT_FILE = ".aom/agents.json"   # legacy, kept for backward compat
+_LEGACY_LOCAL_CONFIG = ".aom/config.json" # old location, kept for migration
+LOCAL_CONFIG_FILE = "aom.json"            # new location at project root
+_LOCAL_CONFIG_VERSION = 2                 # bumped from 1 to trigger migration
 
 
 # ---------------------------------------------------------------------------
@@ -130,28 +131,32 @@ def get_project_agent_file(project_dir: Path | None = None) -> Path:
 
 
 def read_selected_agents(project_dir: Path | None = None) -> list[str] | None:
-    """Read selected agents from ``.aom/config.json`` (preferred) or legacy ``.aom/agents.json``."""
-    # Try new config file first
+    """Read selected agents from ``aom.json`` (preferred), legacy ``.aom/config.json``, or ``.aom/agents.json``."""
     base = (project_dir or Path.cwd()).resolve()
-    config_path = base / LOCAL_CONFIG_FILE
-    if config_path.is_file():
-        try:
-            data = json.loads(config_path.read_text(encoding="utf-8"))
-            raw = data.get("agents")
-            if isinstance(raw, list) and raw:
-                selected = [a for a in raw if isinstance(a, str) and a in AGENT_MAP]
-                if selected:
-                    out: list[str] = []
-                    seen: set[str] = set()
-                    for name in selected:
-                        if name not in seen:
-                            out.append(name)
-                            seen.add(name)
-                    return out
-        except (json.JSONDecodeError, OSError):
-            pass
 
-    # Fall back to legacy .aom/agents.json
+    # 1. New location: aom.json at project root
+    for config_path in (
+        base / LOCAL_CONFIG_FILE,
+        base / _LEGACY_LOCAL_CONFIG,  # old location — migration fallback
+    ):
+        if config_path.is_file():
+            try:
+                data = json.loads(config_path.read_text(encoding="utf-8"))
+                raw = data.get("agents")
+                if isinstance(raw, list) and raw:
+                    selected = [a for a in raw if isinstance(a, str) and a in AGENT_MAP]
+                    if selected:
+                        out: list[str] = []
+                        seen: set[str] = set()
+                        for name in selected:
+                            if name not in seen:
+                                out.append(name)
+                                seen.add(name)
+                        return out
+            except (json.JSONDecodeError, OSError):
+                pass
+
+    # 2. Fall back to legacy .aom/agents.json
     path = get_project_agent_file(project_dir)
     if not path.is_file():
         return None
@@ -176,7 +181,7 @@ def read_selected_agents(project_dir: Path | None = None) -> list[str] | None:
 
 
 def write_selected_agents(agents: list[str], project_dir: Path | None = None) -> None:
-    """Persist selected agents into ``.aom/config.json`` and legacy ``.aom/agents.json``."""
+    """Persist selected agents into ``aom.json`` and legacy ``.aom/agents.json``."""
     out: list[str] = []
     seen: set[str] = set()
     for agent in agents:
@@ -185,7 +190,7 @@ def write_selected_agents(agents: list[str], project_dir: Path | None = None) ->
             seen.add(agent)
     if not out:
         raise ValueError("At least one valid agent is required.")
-    # Write to new config file
+    # Write to new config file (project root)
     config = load_local_config(project_dir)
     config["agents"] = out
     save_local_config(config, project_dir)
@@ -370,10 +375,10 @@ def get_repo_urls(project_dir: Path | None = None, agent: str | None = None) -> 
 
     Sources (in order, deduplicated):
       1. Global user settings (``~/.config/aom/settings.json``).
-      2. Local config file (``.aom/config.json``).
-      3. Project config file (``CLAUDE.md`` -> ``## Skills Source``; legacy).
+      2. Project config file (``CLAUDE.md`` -> ``## Skills Source``; legacy).
 
-    Returns an empty list when no repositories are configured anywhere.
+    ``repositories`` is no longer stored in the local project config.
+    Use ``aom init`` to manage repository URLs in global settings.
     """
     from .settings import get_repo_urls as _global_urls
 
@@ -382,14 +387,6 @@ def get_repo_urls(project_dir: Path | None = None, agent: str | None = None) -> 
 
     for url in _global_urls():
         if url not in seen:
-            urls.append(url)
-            seen.add(url)
-
-    # Check local config
-    config = load_local_config(project_dir)
-    for repo in config.get("repositories", []):
-        url = repo["url"] if isinstance(repo, dict) else repo
-        if url and url not in seen:
             urls.append(url)
             seen.add(url)
 
@@ -406,9 +403,10 @@ def get_local_paths(project_dir: Path | None = None) -> list[str]:
     """
     Return all configured local filesystem paths for skill repositories.
 
-    Sources (deduplicated):
-      1. Global user settings.
-      2. Local config file (``.aom/config.json``).
+    Source: global user settings only.
+
+    ``local_paths`` is no longer stored in the local project config.
+    Use ``aom init`` to manage local paths in global settings.
     """
     from .settings import get_local_paths as _global_local_paths
 
@@ -421,42 +419,110 @@ def get_local_paths(project_dir: Path | None = None) -> list[str]:
             paths.append(p)
             seen.add(normalized)
 
-    config = load_local_config(project_dir)
-    for p in config.get("local_paths", []):
-        if isinstance(p, str) and p:
-            normalized = str(Path(p).resolve())
-            if normalized not in seen:
-                paths.append(p)
-                seen.add(normalized)
-
     return paths
 
 
 # ---------------------------------------------------------------------------
-# Local config file (.aom/config.json) — unified config
+# Local config file (aom.json at project root) — unified config
 # ---------------------------------------------------------------------------
 
 
 def get_local_config_path(project_dir: Path | None = None) -> Path:
-    """Return path to the local .aom/config.json."""
+    """Return path to the local aom.json at the project root."""
     base = (project_dir or Path.cwd()).resolve()
     return base / LOCAL_CONFIG_FILE
 
 
 def is_initialized(project_dir: Path | None = None) -> bool:
-    """Return True if the project has been initialized (has .aom/config.json)."""
-    return get_local_config_path(project_dir).is_file()
+    """Return True if the project has been initialized (has aom.json or old .aom/config.json)."""
+    if get_local_config_path(project_dir).is_file():
+        return True
+    # Detect old-format config so callers don't get a false negative before migration
+    base = (project_dir or Path.cwd()).resolve()
+    return (base / _LEGACY_LOCAL_CONFIG).is_file()
+
+
+def _migrate_legacy_config(project_dir: Path | None = None) -> bool:
+    """
+    Migrate old ``.aom/config.json`` (v1) to ``aom.json`` (v2).
+
+    Actions taken:
+      - Reads agents and required from the old file.
+      - Merges repositories and local_paths into global settings.
+      - Writes the new ``aom.json`` with only agents + required.
+      - Does NOT delete the old file (safe to leave as an ignored artefact).
+
+    Returns True if migration was performed, False otherwise.
+    """
+    base = (project_dir or Path.cwd()).resolve()
+    old_path = base / _LEGACY_LOCAL_CONFIG
+    new_path = base / LOCAL_CONFIG_FILE
+
+    if not old_path.is_file() or new_path.is_file():
+        return False  # nothing to do
+
+    try:
+        old_data = json.loads(old_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+
+    # Only migrate if it's actually the old v1 schema
+    if old_data.get("version", 1) >= _LOCAL_CONFIG_VERSION:
+        return False
+
+    # --- build new local config (agents + required only) ---
+    new_data: dict = {
+        "version": _LOCAL_CONFIG_VERSION,
+        "agents": old_data.get("agents", []),
+        "required": old_data.get("required", {}),
+    }
+
+    # --- migrate repos and local_paths to global settings ---
+    from .settings import get_repo_urls as _g_urls, set_repo_urls as _s_urls
+    from .settings import get_local_paths as _g_paths, set_local_paths as _s_paths
+
+    old_repos = old_data.get("repositories", [])
+    if old_repos:
+        old_urls = [r["url"] if isinstance(r, dict) else r for r in old_repos]
+        old_urls = [u for u in old_urls if isinstance(u, str) and u]
+        existing = _g_urls()
+        merged = list(existing)
+        seen = set(existing)
+        for u in old_urls:
+            if u not in seen:
+                merged.append(u)
+                seen.add(u)
+        if merged != existing:
+            _s_urls(merged)
+
+    old_paths = old_data.get("local_paths", [])
+    if old_paths:
+        old_paths = [p for p in old_paths if isinstance(p, str) and p]
+        existing_p = _g_paths()
+        merged_p = list(existing_p)
+        seen_p = {str(Path(p).resolve()) for p in existing_p}
+        for p in old_paths:
+            n = str(Path(p).resolve())
+            if n not in seen_p:
+                merged_p.append(p)
+                seen_p.add(n)
+        if merged_p != existing_p:
+            _s_paths(merged_p)
+
+    # --- write new aom.json ---
+    save_local_config(new_data, project_dir)
+    return True
 
 
 def load_local_config(project_dir: Path | None = None) -> dict:
-    """Load and return the local .aom/config.json, or defaults if not present."""
-    import os
+    """Load and return ``aom.json``, automatically migrating from the old location if needed."""
+    # Silently migrate on first access
+    _migrate_legacy_config(project_dir)
+
     path = get_local_config_path(project_dir)
-    defaults = {
+    defaults: dict = {
         "version": _LOCAL_CONFIG_VERSION,
         "agents": [],
-        "repositories": [],
-        "local_paths": [],
         "required": {},
     }
     if not path.is_file():
@@ -465,22 +531,25 @@ def load_local_config(project_dir: Path | None = None) -> dict:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return dict(defaults)
-    # Ensure all expected keys exist (backward compat)
     for key, val in defaults.items():
         data.setdefault(key, val)
     return data
 
 
 def save_local_config(data: dict, project_dir: Path | None = None) -> None:
-    """Save data to .aom/config.json with atomic write."""
+    """Atomically save data to ``aom.json`` at the project root."""
     import os
     import tempfile
 
+    # Strip fields that no longer belong in the local config
+    data.pop("repositories", None)
+    data.pop("local_paths", None)
     data["version"] = _LOCAL_CONFIG_VERSION
+
     path = get_local_config_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     content = json.dumps(data, indent=2, ensure_ascii=False)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=".config-")
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=".aom-")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)

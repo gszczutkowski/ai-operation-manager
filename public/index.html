@@ -757,7 +757,7 @@
             <div class="step-num"></div>
             <div class="step-content">
               <h4>Install skills (they are saved to config automatically)</h4>
-              <p>Use <code>aom install</code> to add skills — the requirement is saved to <code>.aom/config.json</code> automatically (like npm):</p>
+              <p>Use <code>aom install</code> to add skills — the requirement is saved to <code>aom.json</code> automatically (like npm):</p>
               <div class="terminal">
                 <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom install</span></div>
                 <div class="terminal-body">
@@ -766,8 +766,8 @@
                   <div><span class="prompt">$ </span>aom install evaluate-workflow</div>
                 </div>
               </div>
-              <p>Or edit <code>.aom/config.json</code> directly:</p>
-              <pre><div class="code-header"><span class="code-lang">json · .aom/config.json (required section)</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
+              <p>Or edit <code>aom.json</code> directly:</p>
+              <pre><div class="code-header"><span class="code-lang">json · aom.json (required section)</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
   "required": {
     "create-jira-story": "1.0.0",
     "design-workflow": ">=1.1.0",
@@ -804,8 +804,7 @@
         <p>Quick reference for all available commands:</p>
 
         <div class="cmd-list">
-          <div class="cmd-item"><span class="cmd-name">aom init</span><span class="cmd-desc">Interactive setup: detect agents, write .aom/config.json</span></div>
-          <div class="cmd-item"><span class="cmd-name">aom init global</span><span class="cmd-desc">Interactive setup for global settings (agents, repos, paths)</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom init</span><span class="cmd-desc">Interactive setup: detect agents, write aom.json; configure global settings on first run</span></div>
           <div class="cmd-item"><span class="cmd-name">aom install NAME[:VER]</span><span class="cmd-desc">Install an operation and save to config (like npm)</span></div>
           <div class="cmd-item"><span class="cmd-name">aom list</span><span class="cmd-desc">Show available and installed versions across all scopes</span></div>
           <div class="cmd-item"><span class="cmd-name">aom list requirements</span><span class="cmd-desc">Show only skills declared as requirements in the project config</span></div>
@@ -824,32 +823,32 @@
 
         <!-- aom init -->
         <h3 id="cmd-init">aom init</h3>
-        <p>Interactive setup wizard. Detects supported AI agent config files, lets you select one or multiple active agents, asks for remote repository URLs and optional local paths, and writes everything to <code>.aom/config.json</code>. Use <code>aom init global</code> to configure global settings.</p>
+        <p>Interactive setup wizard. Runs in two phases: <strong>Phase A</strong> creates or updates global settings (repositories, local paths) — on first run it prompts for everything; on subsequent runs it confirms or updates existing values. <strong>Phase B</strong> detects AI agent config files in the project, lets you choose agents, and writes <code>aom.json</code> to the project root.</p>
         <div class="terminal">
           <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom init</span></div>
           <div class="terminal-body">
             <div><span class="prompt">$ </span>aom init</div>
-            <div class="output">  Found: CLAUDE.md → ClaudeCode, AGENTS.md → Codex</div>
-            <div class="output">  Select agents [all]: <span class="info">ClaudeCode, Codex</span></div>
+            <div class="output">  Project : /home/user/my-project</div>
+            <div class="output"></div>
+            <div class="output">  Global settings not found. Setting up global configuration.</div>
             <div class="output">  Repository URL(s): git@gitlab.com:myorg/ai-grimoire.git</div>
-            <div class="success">  ✓ Saved agents to .aom/config.json</div>
+            <div class="success">  ✓ Global configuration created: ~/.config/aom/settings.json</div>
+            <div class="output">  Found: CLAUDE.md → ClaudeCode</div>
+            <div class="output">  Use this agent? [Y/n]:</div>
+            <div class="success">  ✓ Project configuration saved to aom.json</div>
             <div class="success">  ✓ Fetched. 17 total skill version(s) available.</div>
           </div>
         </div>
-        <p><code>aom init</code> writes configuration to <code>.aom/config.json</code>:</p>
-        <pre><div class="code-header"><span class="code-lang">json · .aom/config.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
-  "version": 1,
+        <p><code>aom init</code> writes configuration to <code>aom.json</code> at the project root:</p>
+        <pre><div class="code-header"><span class="code-lang">json · aom.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
+  "version": 2,
   "agents": ["ClaudeCode", "Codex"],
-  "repositories": [
-    { "url": "git@gitlab.com:myorg/ai-grimoire.git" }
-  ],
-  "local_paths": [],
   "required": {}
 }</code></pre>
 
         <!-- aom install -->
         <h3 id="cmd-install">aom install</h3>
-        <p>Installs an operation into the target scope and saves the requirement to <code>.aom/config.json</code> (or global settings with <code>--global</code>), similar to how <code>npm install</code> saves to <code>package.json</code>. Requires <code>aom init</code> to have been run first.</p>
+        <p>Installs an operation into the target scope and saves the requirement to <code>aom.json</code> (or global settings with <code>--global</code>), similar to how <code>npm install</code> saves to <code>package.json</code>. Requires <code>aom init</code> to have been run first.</p>
         <div class="terminal">
           <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom install examples</span></div>
           <div class="terminal-body">
@@ -905,7 +904,7 @@
 
         <!-- aom sync -->
         <h3 id="cmd-sync">aom sync</h3>
-        <p>Reads requirements from <code>.aom/config.json</code> and installs missing or outdated operations for all selected agents. Falls back to agent config files if no requirements are in the config.</p>
+        <p>Reads requirements from <code>aom.json</code> and installs missing or outdated operations for all selected agents. Falls back to agent config files if no requirements are in the config.</p>
         <div class="terminal">
           <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom sync</span></div>
           <div class="terminal-body">
@@ -988,7 +987,7 @@
 
         <!-- aom remove -->
         <h3 id="cmd-remove">aom remove</h3>
-        <p>Removes the skill files and also removes the entry from <code>.aom/config.json</code> (or global settings with <code>--global</code>).</p>
+        <p>Removes the skill files and also removes the entry from <code>aom.json</code> (or global settings with <code>--global</code>).</p>
         <div class="terminal">
           <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">aom remove</span></div>
           <div class="terminal-body">
@@ -1076,20 +1075,16 @@
       <section id="configuration">
         <h2>Configuration</h2>
 
-        <h3 id="config-file">Local Config File (.aom/config.json)</h3>
-        <p><code>aom init</code> creates a <code>.aom/config.json</code> file in the project root. This is the single source of truth for local configuration. Skills are added via <code>aom install</code> (like npm) and removed via <code>aom remove</code>.</p>
+        <h3 id="config-file">Local Config File (aom.json)</h3>
+        <p><code>aom init</code> creates an <code>aom.json</code> file at the project root. This is the single source of truth for local configuration. Skills are added via <code>aom install</code> (like npm) and removed via <code>aom remove</code>.</p>
 
         <div class="scope-grid">
           <div class="scope-card local">
-            <h4>Local config (.aom/config.json)</h4>
+            <h4>Local config (aom.json)</h4>
             <p>Project-specific configuration:</p>
-            <pre><div class="code-header"><span class="code-lang">json · .aom/config.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
-  "version": 1,
+            <pre><div class="code-header"><span class="code-lang">json · aom.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
+  "version": 2,
   "agents": ["ClaudeCode", "Codex"],
-  "repositories": [
-    { "url": "git@gitlab.com:myorg/ai-grimoire.git" }
-  ],
-  "local_paths": [],
   "required": {
     "create-jira-story": "1.0.0",
     "design-workflow": ">=1.0.0",
@@ -1098,7 +1093,7 @@
 }</code></pre>
           </div>
           <div class="scope-card global">
-            <h4>Global settings (aom init global)</h4>
+            <h4>Global settings (aom init)</h4>
             <p>Shared across all projects:</p>
             <pre><div class="code-header"><span class="code-lang">json · settings.json</span><div class="code-dots"><span></span><span></span><span></span></div><button class="copy-btn">Copy</button></div><code class="language-json">{
   "version": 3,
@@ -1148,7 +1143,7 @@
         </div>
 
         <h3 id="global-settings">Global Settings</h3>
-        <p>Global settings are managed by <code>aom init global</code> and stored at a platform-specific location:</p>
+        <p>Global settings are created and updated by <code>aom init</code> and stored at a platform-specific location:</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Platform</th><th>Settings file</th></tr></thead>
@@ -1234,7 +1229,7 @@
       <!-- ── Supported Agents ── -->
       <section id="agents">
         <h2>Supported AI Agents</h2>
-        <p>aom detects agents from config files and can persist selected active agents via <code>.aom/config.json</code> after <code>aom init</code>.</p>
+        <p>aom detects agents from config files and can persist selected active agents via <code>aom.json</code> after <code>aom init</code>.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Config file</th><th>Agent</th><th>Status</th></tr></thead>
@@ -1282,7 +1277,7 @@
               <tr><td>No skills found after <code>aom list</code></td><td>Run <code>aom list --fetch</code> to refresh the tag index from the remote</td></tr>
               <tr><td>Wrong agent detected</td><td>Run <code>aom init</code> again to reconfigure</td></tr>
               <tr><td><code>aom sync</code> skips a skill</td><td>Check the version constraint in your config matches an existing tag</td></tr>
-              <tr><td>Skills not visible in new project</td><td>Run <code>aom init</code> — project may not have a <code>.aom/config.json</code> yet</td></tr>
+              <tr><td>Skills not visible in new project</td><td>Run <code>aom init</code> — project may not have an <code>aom.json</code> yet</td></tr>
             </tbody>
           </table>
         </div>
