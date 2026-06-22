@@ -94,7 +94,7 @@ ARTIFACT_TYPES = ("skills", "commands", "agents", "hooks")
 
 LOCAL_REGISTRY_NAME = "registry.json"
 PROJECT_AGENT_FILE = ".aom/agents.json"   # legacy, kept for backward compat
-_LEGACY_LOCAL_CONFIG = ".aom/config.json" # old location, kept for migration
+_LEGACY_LOCAL_CONFIG = ".aom/config.json"  # old location, kept for migration
 LOCAL_CONFIG_FILE = "aom.json"            # new location at project root
 _LOCAL_CONFIG_VERSION = 2                 # bumped from 1 to trigger migration
 
