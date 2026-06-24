@@ -43,8 +43,8 @@ class TestConstants:
         cfg = AGENT_MAP["Kiro"]
         assert cfg["dir_name"] == ".kiro"
         assert cfg["config_file"] == "KIRO.md"
-        assert cfg["type_dirs"]["skills"] == "steering"
-        assert cfg["type_dirs"]["commands"] == "steering"
+        assert cfg["type_dirs"]["skills"] == "skills"
+        assert cfg["type_dirs"]["commands"] == "commands"
         assert cfg["type_dirs"]["hooks"] == "hooks"
 
 
