@@ -54,10 +54,10 @@ AGENT_MAP: dict[str, AgentConfig] = {
     },
     "Kiro": {
         "dir_name": ".kiro",           # ~/.kiro  /  <project>/.kiro
-        "config_file": ".kiro",        # detection: directory presence in CWD
+        "config_file": "KIRO.md",      # project requirements live here
         "type_dirs": {
-            "skills": "steering",
-            "commands": "steering",
+            "skills": "skills",
+            "commands": "commands",
             "agents": "agents",
             "hooks": "hooks",
         },
