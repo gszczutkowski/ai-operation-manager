@@ -42,7 +42,7 @@ class TestConstants:
         assert "Kiro" in AGENT_MAP
         cfg = AGENT_MAP["Kiro"]
         assert cfg["dir_name"] == ".kiro"
-        assert cfg["config_file"] == ".kiro"
+        assert cfg["config_file"] == "KIRO.md"
         assert cfg["type_dirs"]["skills"] == "steering"
         assert cfg["type_dirs"]["commands"] == "steering"
         assert cfg["type_dirs"]["hooks"] == "hooks"
@@ -59,7 +59,7 @@ class TestDetectAgent:
         assert _detect_agent_from_cwd() == "ClaudeCode"
 
     def test_detect_kiro_from_cwd(self, tmp_path, monkeypatch):
-        (tmp_path / ".kiro").mkdir()
+        (tmp_path / "KIRO.md").touch()
         monkeypatch.chdir(tmp_path)
         assert _detect_agent_from_cwd() == "Kiro"
 
