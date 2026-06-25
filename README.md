@@ -278,7 +278,7 @@ No environment variables are needed. Run `aom init` to configure or update globa
 | ---------------------------- | -------------------------------------------------------- |
 | `aom init`                   | Interactive setup: detect agents, write `aom.json`; configure global settings on first run |
 | `aom fetch`                  | Refresh the operation index from all remote repositories |
-| `aom install NAME[:VERSION]` | Install operation in local/global scope for selected agent(s) |
+| `aom install NAME[:VERSION]` | Install operation in local/global scope for selected agent(s); supports wildcard patterns (e.g. `"create-*"`) |
 | `aom info NAME[:VERSION]`    | Show rich metadata for an operation before installing    |
 | `aom list`                   | Show available and installed versions (aggregated for multiple agents) |
 | `aom list requirements`      | Show only skills declared as requirements in the project config        |
@@ -333,6 +333,11 @@ aom install create-jira-story:1.0.0    # exact version, local scope
 aom install design-workflow:>=1.0.0 --global
 aom install create-jira-story --no-overwrite  # skip if already installed
 aom install create-jira-story --fetch  # refresh tag index first
+
+# Wildcard patterns — install all matching skills at once
+aom install "create-*"                 # all skills starting with "create-"
+aom install "test*:>=1.0.0"            # all "test*" skills at version >=1.0.0
+aom install "*"                        # all available skills (latest stable)
 ```
 
 Behavior:
@@ -341,6 +346,26 @@ Behavior:
 - Installs the skill and saves the requirement to `aom.json` (or global settings with `--global`), similar to how `npm install` saves to `package.json`.
 - With one selected agent: installs exactly once into that agent's target scope.
 - With multiple selected agents: installs the resolved version for each selected agent and prints scope with agent name, for example `[local:Codex]`, `[local:ClaudeCode]`.
+
+#### Wildcard installs
+
+The name part of the spec supports glob wildcards (`*`, `?`, `[…]`). When a wildcard is detected, aom expands it against all available skills in the configured repositories and installs each match:
+
+```
+$ aom install "create-*"
+Pattern 'create-*' matched 3 skill(s): create-jira-story, create-pr, create-release-notes
+
+✓ Installed create-jira-story@1.2.0 [local:ClaudeCode] → .claude/skills/create-jira-story.md
+✓ Installed create-pr@1.0.0 [local:ClaudeCode] → .claude/skills/create-pr.md
+✓ Installed create-release-notes@2.1.0 [local:ClaudeCode] → .claude/skills/create-release-notes.md
+
+Installed 3 skills.
+```
+
+- Matching is **case-insensitive**.
+- A version constraint (e.g. `"create-*:>=1.0.0"`) applies to **every** matched skill.
+- Each matched skill is saved individually to `aom.json` as a named requirement.
+- If one match fails to resolve (e.g. no version satisfies the constraint), installation continues for the rest and the command exits with code 1.
 
 ### `aom info`
 

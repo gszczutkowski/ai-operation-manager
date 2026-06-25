@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, ANY
 
 import pytest
 
@@ -13,6 +13,8 @@ from aom.cli import (
     _c,
     _best_version_str,
     _suggest_similar,
+    _is_wildcard,
+    _expand_wildcard_names,
     _guess_type,
     _cmd_sync_requirements,
     cmd_init,
@@ -251,6 +253,273 @@ class TestCmdInstall:
         _, kwargs = mock_resolve.call_args
         assert kwargs.get("global_records") == []
         assert kwargs.get("local_records") == []
+
+
+# ===================================================================
+# Wildcard helpers
+# ===================================================================
+
+
+class TestIsWildcard:
+    def test_star(self):
+        assert _is_wildcard("test*") is True
+
+    def test_question_mark(self):
+        assert _is_wildcard("test?") is True
+
+    def test_bracket(self):
+        assert _is_wildcard("test[ab]") is True
+
+    def test_plain_name(self):
+        assert _is_wildcard("test-skill") is False
+
+    def test_name_with_colon(self):
+        # version constraint portion is split off before this check; test the name part
+        assert _is_wildcard("my-skill") is False
+
+
+class TestExpandWildcardNames:
+    def test_prefix_match(self, make_record):
+        records = [
+            make_record(name="test-alpha"),
+            make_record(name="test-beta"),
+            make_record(name="other-skill"),
+        ]
+        assert _expand_wildcard_names("test*", records) == ["test-alpha", "test-beta"]
+
+    def test_case_insensitive(self, make_record):
+        records = [make_record(name="Test-Alpha"), make_record(name="other")]
+        result = _expand_wildcard_names("test*", records)
+        assert result == ["Test-Alpha"]
+
+    def test_deduplicates_same_name_multiple_versions(self, make_record):
+        records = [
+            make_record(name="test-skill", version_str="1.0.0"),
+            make_record(name="test-skill", version_str="2.0.0"),
+        ]
+        assert _expand_wildcard_names("test*", records) == ["test-skill"]
+
+    def test_no_matches(self, make_record):
+        records = [make_record(name="other-skill")]
+        assert _expand_wildcard_names("test*", records) == []
+
+    def test_question_mark_matches_single_char(self, make_record):
+        records = [make_record(name="test-a"), make_record(name="test-bb")]
+        assert _expand_wildcard_names("test-?", records) == ["test-a"]
+
+    def test_star_matches_all(self, make_record):
+        records = [make_record(name="alpha"), make_record(name="beta")]
+        result = _expand_wildcard_names("*", records)
+        assert "alpha" in result and "beta" in result
+
+    def test_result_is_sorted(self, make_record):
+        records = [make_record(name="test-z"), make_record(name="test-a"), make_record(name="test-m")]
+        assert _expand_wildcard_names("test*", records) == ["test-a", "test-m", "test-z"]
+
+
+# ===================================================================
+# cmd_install — wildcard expansion
+# ===================================================================
+
+
+class TestCmdInstallWildcard:
+    """Integration-lite tests for wildcard expansion in cmd_install."""
+
+    @patch("aom.cli.is_initialized", return_value=True)
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli._get_repo_records")
+    def test_wildcard_no_matches_returns_1(
+        self,
+        mock_repo_records,
+        mock_local,
+        mock_global,
+        mock_scan_inst,
+        mock_local_paths,
+        mock_git,
+        mock_agents,
+        mock_init,
+        make_record,
+        capsys,
+    ):
+        """Wildcard pattern that matches nothing returns 1 without calling resolve."""
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/nonexistent")
+        mock_repo_records.return_value = [make_record(name="other-skill")]
+
+        with patch("aom.cli.resolve") as mock_resolve:
+            result = main(["install", "test*"])
+
+        assert result == 1
+        mock_resolve.assert_not_called()
+        out = capsys.readouterr().out
+        assert "No skills found matching pattern" in out
+
+    @patch("aom.cli.is_initialized", return_value=True)
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli._get_repo_records")
+    @patch("aom.cli.ensure_local_dir")
+    @patch("aom.cli.get_local_registry", return_value=Path("/tmp/registry.json"))
+    @patch("aom.cli.Registry")
+    @patch("aom.cli.install")
+    @patch("aom.cli.add_required_skill")
+    @patch("aom.cli.resolve")
+    def test_wildcard_installs_all_matched_skills(
+        self,
+        mock_resolve,
+        mock_add_req,
+        mock_install,
+        mock_registry,
+        mock_local_registry,
+        mock_ensure,
+        mock_repo_records,
+        mock_local,
+        mock_global,
+        mock_scan_inst,
+        mock_local_paths,
+        mock_git,
+        mock_agents,
+        mock_init,
+        make_record,
+        capsys,
+    ):
+        """Wildcard matches two skills — both are installed and saved as requirements."""
+        rec_a = make_record(name="test-alpha", version_str="1.0.0")
+        rec_b = make_record(name="test-beta", version_str="2.0.0")
+
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/tmp/local")
+        mock_repo_records.return_value = [rec_a, rec_b, make_record(name="other-skill")]
+        mock_resolve.side_effect = lambda req, _records, **kw: {
+            "test-alpha": rec_a,
+            "test-beta": rec_b,
+        }.get(req.name)
+        mock_install.return_value = Path("/tmp/local/skills/placeholder")
+
+        result = main(["install", "test*"])
+
+        assert result == 0
+        # resolve called once per matched name
+        assert mock_resolve.call_count == 2
+        resolved_names = {call.args[0].name for call in mock_resolve.call_args_list}
+        assert resolved_names == {"test-alpha", "test-beta"}
+        # requirement saved for each
+        assert mock_add_req.call_count == 2
+        saved_names = {call.args[0] for call in mock_add_req.call_args_list}
+        assert saved_names == {"test-alpha", "test-beta"}
+        out = capsys.readouterr().out
+        assert "test-alpha" in out
+        assert "test-beta" in out
+
+    @patch("aom.cli.is_initialized", return_value=True)
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli._get_repo_records")
+    @patch("aom.cli.ensure_local_dir")
+    @patch("aom.cli.get_local_registry", return_value=Path("/tmp/registry.json"))
+    @patch("aom.cli.Registry")
+    @patch("aom.cli.install")
+    @patch("aom.cli.add_required_skill")
+    @patch("aom.cli.resolve")
+    def test_wildcard_partial_failure_returns_1(
+        self,
+        mock_resolve,
+        mock_add_req,
+        mock_install,
+        mock_registry,
+        mock_local_registry,
+        mock_ensure,
+        mock_repo_records,
+        mock_local,
+        mock_global,
+        mock_scan_inst,
+        mock_local_paths,
+        mock_git,
+        mock_agents,
+        mock_init,
+        make_record,
+        capsys,
+    ):
+        """If one matched skill fails to resolve, continue with the rest and return 1."""
+        rec_a = make_record(name="test-alpha", version_str="1.0.0")
+
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/tmp/local")
+        mock_repo_records.return_value = [rec_a, make_record(name="test-beta")]
+        # test-alpha resolves, test-beta does not
+        mock_resolve.side_effect = lambda req, _records, **kw: (
+            rec_a if req.name == "test-alpha" else None
+        )
+        mock_install.return_value = Path("/tmp/local/skills/test-alpha")
+
+        result = main(["install", "test*"])
+
+        assert result == 1
+        # test-alpha still installed despite test-beta failing
+        mock_install.assert_called_once()
+        mock_add_req.assert_called_once_with("test-alpha", "latest", ANY)
+        out = capsys.readouterr().out
+        assert "test-beta" in out  # failure message mentions the name
+
+    @patch("aom.cli.is_initialized", return_value=True)
+    @patch("aom.cli._active_agents", return_value=["ClaudeCode"])
+    @patch("aom.cli._get_git_repos", return_value=[])
+    @patch("aom.cli.get_local_paths", return_value=[])
+    @patch("aom.cli.scan_installed", return_value=[])
+    @patch("aom.cli.get_global_dir")
+    @patch("aom.cli.get_local_dir")
+    @patch("aom.cli._get_repo_records")
+    @patch("aom.cli.resolve", return_value=None)
+    def test_wildcard_version_constraint_forwarded(
+        self,
+        mock_resolve,
+        mock_repo_records,
+        mock_local,
+        mock_global,
+        mock_scan_inst,
+        mock_local_paths,
+        mock_git,
+        mock_agents,
+        mock_init,
+        make_record,
+        capsys,
+    ):
+        """Version constraint from 'test*:>=1.0.0' is passed through to resolve."""
+        rec = make_record(name="test-skill", version_str="2.0.0")
+        mock_global.return_value = Path("/nonexistent")
+        mock_local.return_value = Path("/nonexistent")
+        mock_repo_records.return_value = [rec]
+
+        main(["install", "test*:>=1.0.0"])
+
+        mock_resolve.assert_called_once()
+        req_arg = mock_resolve.call_args.args[0]
+        assert req_arg.name == "test-skill"
+        assert req_arg.constraint == ">=1.0.0"
+
+    def test_parser_accepts_wildcard_spec(self):
+        """Argparse should pass wildcard specs through unchanged."""
+        parser = build_parser()
+        args = parser.parse_args(["install", "test*"])
+        assert args.spec == "test*"
+
+    def test_parser_accepts_wildcard_with_version(self):
+        parser = build_parser()
+        args = parser.parse_args(["install", "test*:>=1.0.0"])
+        assert args.spec == "test*:>=1.0.0"
 
 
 # ===================================================================
@@ -634,6 +903,7 @@ class TestCmdDeploy:
             patch("aom.cli.get_settings_dir", return_value=settings_dir),
             patch("aom.cli.AGENT_MAP", agent_map),
             patch("pathlib.Path.home", return_value=tmp_path),
+            patch("aom.settings.get_initialized_paths", return_value=[]),
         ):
             result = main(["undeploy", "--purge"])
 
@@ -661,6 +931,7 @@ class TestCmdDeploy:
             patch("aom.cli.get_settings_dir", return_value=tmp_path / "no-settings"),
             patch("aom.cli.AGENT_MAP", {}),
             patch("pathlib.Path.home", return_value=tmp_path),
+            patch("aom.settings.get_initialized_paths", return_value=[]),
         ):
             result = main(["undeploy", "--purge"])
 

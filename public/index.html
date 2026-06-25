@@ -805,7 +805,7 @@
 
         <div class="cmd-list">
           <div class="cmd-item"><span class="cmd-name">aom init</span><span class="cmd-desc">Interactive setup: detect agents, write aom.json; configure global settings on first run</span></div>
-          <div class="cmd-item"><span class="cmd-name">aom install NAME[:VER]</span><span class="cmd-desc">Install an operation and save to config (like npm)</span></div>
+          <div class="cmd-item"><span class="cmd-name">aom install NAME[:VER]</span><span class="cmd-desc">Install an operation and save to config — supports wildcard patterns like <code>"create-*"</code></span></div>
           <div class="cmd-item"><span class="cmd-name">aom list</span><span class="cmd-desc">Show available and installed versions across all scopes</span></div>
           <div class="cmd-item"><span class="cmd-name">aom list requirements</span><span class="cmd-desc">Show only skills declared as requirements in the project config</span></div>
           <div class="cmd-item"><span class="cmd-name">aom sync</span><span class="cmd-desc">Sync all required skills from config (default), sync agents, or clean</span></div>
@@ -866,8 +866,37 @@
             <div></div>
             <div><span class="comment"># Refresh tag index before installing</span></div>
             <div><span class="prompt">$ </span>aom install create-jira-story --fetch</div>
+            <div></div>
+            <div><span class="comment"># Wildcard — install all skills starting with "create-"</span></div>
+            <div><span class="prompt">$ </span>aom install "create-*"</div>
+            <div></div>
+            <div><span class="comment"># Wildcard with version constraint</span></div>
+            <div><span class="prompt">$ </span>aom install "test*:>=1.0.0"</div>
           </div>
         </div>
+
+        <h4>Wildcard installs</h4>
+        <p>The name part of the spec supports glob wildcards (<code>*</code>, <code>?</code>, <code>[…]</code>). aom expands the pattern against all skills in the configured repositories and installs each match in one go.</p>
+        <div class="terminal">
+          <div class="terminal-header"><div class="code-dots"><span></span><span></span><span></span></div><span class="terminal-title">wildcard example</span></div>
+          <div class="terminal-body">
+            <div><span class="prompt">$ </span>aom install "create-*"</div>
+            <div class="info">Pattern 'create-*' matched 3 skill(s): create-jira-story, create-pr, create-release-notes</div>
+            <div></div>
+            <div class="success">✓ Installed create-jira-story@1.2.0 [local:ClaudeCode] → .claude/skills/create-jira-story.md</div>
+            <div class="success">✓ Installed create-pr@1.0.0 [local:ClaudeCode] → .claude/skills/create-pr.md</div>
+            <div class="success">✓ Installed create-release-notes@2.1.0 [local:ClaudeCode] → .claude/skills/create-release-notes.md</div>
+            <div></div>
+            <div class="output">Installed 3 skills.</div>
+          </div>
+        </div>
+        <ul>
+          <li>Matching is <strong>case-insensitive</strong>.</li>
+          <li>A version constraint (e.g. <code>"create-*:>=1.0.0"</code>) is applied to <strong>every</strong> matched skill.</li>
+          <li>Each matched skill is saved individually to <code>aom.json</code> as a named requirement.</li>
+          <li>If one match fails to resolve, installation continues for the rest and the command exits with code 1.</li>
+        </ul>
+
         <div class="callout info">
           <span class="callout-icon">💡</span>
           <div class="callout-content"><p>With multiple selected agents, install runs against each one and prints scope labels like <code>[local:Codex]</code>, <code>[local:ClaudeCode]</code>.</p></div>

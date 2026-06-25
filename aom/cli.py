@@ -314,15 +314,27 @@ def cmd_install(args: argparse.Namespace) -> int:
     git_repos = _get_git_repos(project_dir)
     _fetch_if_requested(git_repos, getattr(args, "fetch", False), getattr(args, "no_fetch", False))
 
-    # Parse "name:version" or "name"
+    # Parse "name[:version]" — name part may contain glob wildcards
     spec = args.spec
     if ":" in spec:
-        name, version_constraint = spec.split(":", 1)
+        name_pattern, version_constraint = spec.split(":", 1)
     else:
-        name, version_constraint = spec, "latest"
+        name_pattern, version_constraint = spec, "latest"
 
     repo_records = _get_repo_records(git_repos)
-    req = VersionRequirement(name=name, constraint=version_constraint)
+
+    # Expand wildcards to a list of concrete names; plain names become a single-item list.
+    if _is_wildcard(name_pattern):
+        install_names = _expand_wildcard_names(name_pattern, repo_records)
+        if not install_names:
+            print(red(f"✗ No skills found matching pattern: {name_pattern!r}"))
+            if git_repos and not getattr(args, "fetch", False):
+                print(dim("  Tip: run with --fetch to refresh the tag index from the remote."))
+            return 1
+        print(f"Pattern {name_pattern!r} matched {len(install_names)} skill(s): {', '.join(install_names)}")
+        print()
+    else:
+        install_names = [name_pattern]
 
     global_installed: list[SkillRecord] = []
     local_installed: list[SkillRecord] = []
@@ -334,51 +346,67 @@ def cmd_install(args: argparse.Namespace) -> int:
         if local_dir.exists():
             local_installed.extend(scan_installed(local_dir))
 
-    record = resolve(req, repo_records, global_records=global_installed, local_records=local_installed)
-
-    if record is None:
-        print(red(f"✗ Skill not found: {name}@{version_constraint}"))
-        _suggest_similar(name, repo_records)
-        if git_repos and not getattr(args, "fetch", False):
-            print(dim("  Tip: run with --fetch to refresh the tag index from the remote."))
-        return 1
-
-    git_repo = _find_git_repo_for_record(record, git_repos)
-    v = record.version.raw if record.version else "unknown"
     scope_label = "global" if args.global_ else "local"
+    failed_names: list[str] = []
 
-    installed_count = 0
-    for agent in agents:
+    for name in install_names:
+        req = VersionRequirement(name=name, constraint=version_constraint)
+        record = resolve(req, repo_records, global_records=global_installed, local_records=local_installed)
+
+        if record is None:
+            print(red(f"✗ Skill not found: {name}@{version_constraint}"))
+            if len(install_names) == 1:
+                # Only suggest alternatives for a plain (non-wildcard) lookup
+                _suggest_similar(name, repo_records)
+                if git_repos and not getattr(args, "fetch", False):
+                    print(dim("  Tip: run with --fetch to refresh the tag index from the remote."))
+            failed_names.append(name)
+            continue
+
+        git_repo = _find_git_repo_for_record(record, git_repos)
+        v = record.version.raw if record.version else "unknown"
+        agent_count = 0
+
+        for agent in agents:
+            if args.global_:
+                ensure_global_dir(agent=agent, project_dir=project_dir)
+                target_dir = get_global_dir(agent=agent, project_dir=project_dir)
+                registry = Registry(get_global_registry(agent=agent, project_dir=project_dir))
+            else:
+                ensure_local_dir(project_dir, agent=agent)
+                target_dir = get_local_dir(project_dir, agent=agent)
+                registry = Registry(get_local_registry(project_dir, agent=agent))
+
+            dest = install(
+                record,
+                target_dir,
+                registry,
+                overwrite=not args.no_overwrite,
+                git_repo=git_repo,
+                agent=agent,
+            )
+            agent_count += 1
+            print(green(f"✓ Installed {record.name}@{v} [{scope_label}:{agent}] → {dest}"))
+
+        # Save the requirement to the config file (like npm)
         if args.global_:
-            ensure_global_dir(agent=agent, project_dir=project_dir)
-            target_dir = get_global_dir(agent=agent, project_dir=project_dir)
-            registry = Registry(get_global_registry(agent=agent, project_dir=project_dir))
+            add_global_required_skill(name, version_constraint)
         else:
-            ensure_local_dir(project_dir, agent=agent)
-            target_dir = get_local_dir(project_dir, agent=agent)
-            registry = Registry(get_local_registry(project_dir, agent=agent))
+            add_required_skill(name, version_constraint, project_dir)
 
-        dest = install(
-            record,
-            target_dir,
-            registry,
-            overwrite=not args.no_overwrite,
-            git_repo=git_repo,
-            agent=agent,
-        )
-        installed_count += 1
-        print(green(f"✓ Installed {record.name}@{v} [{scope_label}:{agent}] → {dest}"))
+        if agent_count > 1:
+            print()
+            print(bold(f"Installed for {agent_count} agents."))
 
-    # Save the requirement to the config file (like npm)
-    if args.global_:
-        add_global_required_skill(name, version_constraint)
-    else:
-        add_required_skill(name, version_constraint, project_dir)
-
-    if installed_count > 1:
+    if len(install_names) > 1:
+        success_count = len(install_names) - len(failed_names)
         print()
-        print(bold(f"Installed for {installed_count} agents."))
-    return 0
+        if failed_names:
+            print(bold(f"Installed {success_count}/{len(install_names)} skills. Failed: {', '.join(failed_names)}"))
+        else:
+            print(bold(f"Installed {success_count} skills."))
+
+    return 1 if failed_names else 0
 
 
 # ---------------------------------------------------------------------------
@@ -2722,6 +2750,28 @@ def _suggest_similar(name: str, records: list[SkillRecord]) -> None:
         print(dim("  Similar skills found:"))
         for s in sorted(set(similar))[:5]:
             print(dim(f"    {s}"))
+
+
+def _is_wildcard(pattern: str) -> bool:
+    """Return True if *pattern* contains glob wildcard characters."""
+    return any(c in pattern for c in ("*", "?", "["))
+
+
+def _expand_wildcard_names(pattern: str, records: list[SkillRecord]) -> list[str]:
+    """Return unique skill names from *records* that match the glob *pattern*.
+
+    Matching is case-insensitive; the original casing from the record is preserved.
+    """
+    import fnmatch
+
+    pattern_lower = pattern.lower()
+    seen: set[str] = set()
+    matched: list[str] = []
+    for r in records:
+        if r.name not in seen and fnmatch.fnmatch(r.name.lower(), pattern_lower):
+            seen.add(r.name)
+            matched.append(r.name)
+    return sorted(matched)
 
 
 if __name__ == "__main__":
